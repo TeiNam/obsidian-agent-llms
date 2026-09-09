@@ -7,6 +7,13 @@
 > **에디션 안내**: 이 프로젝트는 **AWS Bedrock · Google Gemini · OpenAI · Ollama** 멀티프로바이더 백엔드를 지원합니다.
 > 과거 `kiro-edition` 브랜치(Assistant Kiro)는 0.3.0에서 main으로 통합되었습니다.
 
+## [0.7.10] - 2026-09-09
+
+### Fixed
+
+- 0.7.9 배포 후 확인된 GitHub Actions의 Node.js 20 폐기 경고를 정리했다. checkout·setup-node·attestation·release Actions를 Node.js 24 기반 버전으로 갱신하고 CI·릴리스 검증용 Node.js도 24로 맞췄다.
+- 플러그인 최소 지원 버전은 Obsidian 1.7.2를 유지한다.
+
 ## [0.7.9] - 2026-09-09
 
 ### Fixed

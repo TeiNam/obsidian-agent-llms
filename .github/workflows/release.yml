@@ -36,15 +36,15 @@ jobs:
           fi
 
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7.0.1
         with:
           fetch-depth: 0
           ref: ${{ steps.branch.outputs.ref }}
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7.0.0
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
 
       - name: Install dependencies
@@ -119,7 +119,7 @@ jobs:
       # 소스에서 빌드됐음을 검증할 수 있다.
       # 버전 bump가 manifest.json을 다시 쓰므로 bump 이후에 증명해야 다이제스트가 맞는다.
       - name: Attest build provenance
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@v4.2.2
         with:
           subject-path: |
             main.js
@@ -127,7 +127,7 @@ jobs:
             styles.css
 
       - name: Create Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3.0.3
         with:
           tag_name: ${{ steps.version.outputs.new }}
           name: "${{ steps.version.outputs.new }}"
