@@ -12,7 +12,7 @@
 
 [English](README.md) | [한국어](README-KR.md) | [日本語](README-JA.md)
 
-This documentation describes **0.7.10**. See the [changelog](CHANGELOG.md) for version history.
+This documentation describes **0.7.11**. See the [changelog](CHANGELOG.md) for version history.
 
 An AI assistant sidebar plugin for Obsidian with multi-provider backend support — AWS Bedrock, Google Gemini, OpenAI, and Ollama.
 
@@ -241,7 +241,7 @@ These capabilities support the features below. MCP servers have their own access
 - **Vault enumeration** — Search, Graph RAG indexing, Second Brain, and file selection use Obsidian's file-list APIs. Indexing splits notes and supported text attachments into chunks and **sends them to the configured embedding API**. Attached notes and tool-read content can also enter model requests. Remote endpoints receive this content; local Ollama keeps these requests on the device.
 - **Clipboard** — Written when you press a message's copy button and read when you paste into chat. Success appears only after the write completes; failures show a notice.
 
-See the [0.7.10 review record (Korean)](docs/review-0.7.10.md) for changes and validation scope.
+See the [0.7.11 review record (Korean)](docs/review-0.7.11.md) for changes and validation scope.
 
 ### Verifying a release
 

@@ -4,7 +4,7 @@
 
 [English](second-brain-en.md) | [한국어](second-brain-kr.md) | [日本語](second-brain-ja.md)
 
-이 가이드는 **0.7.10** 기준입니다.
+이 가이드는 **0.7.11** 기준입니다.
 
 이 문서는 볼트 검색(Graph RAG)과 지식 쓰기(Second Brain) 계층을 상세히 다룹니다. 설치와 기본 사용법은 README를 참고하세요.
 

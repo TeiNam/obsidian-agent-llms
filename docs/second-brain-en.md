@@ -4,7 +4,7 @@
 
 [English](second-brain-en.md) | [한국어](second-brain-kr.md) | [日本語](second-brain-ja.md)
 
-This guide describes **0.7.10**.
+This guide describes **0.7.11**.
 
 This document covers the vault search (Graph RAG) and knowledge-writing (Second Brain) layers in detail. For installation and basic usage, see the README.
 

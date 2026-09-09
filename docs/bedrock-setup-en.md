@@ -1,6 +1,6 @@
 # Bedrock API Key Setup Guide
 
-This guide describes **0.7.10**. See the [README](../README.md) for installation and basic usage.
+This guide describes **0.7.11**. See the [README](../README.md) for installation and basic usage.
 
 The Agent LLMs Bedrock backend authenticates with a single **Bedrock API key (bearer token)**. Enter the key on each device and replace it when it expires or is rotated.
 

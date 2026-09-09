@@ -4,7 +4,7 @@
 
 [English](second-brain-en.md) | [한국어](second-brain-kr.md) | [日本語](second-brain-ja.md)
 
-このガイドは**0.7.10**を対象としています。
+このガイドは**0.7.11**を対象としています。
 
 このドキュメントはボルト検索（Graph RAG）と知識書き込み（Second Brain）レイヤーを詳しく説明します。インストールと基本的な使い方はREADMEを参照してください。
 
