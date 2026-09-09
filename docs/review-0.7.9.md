@@ -49,3 +49,14 @@ git diff --check
 - SSE·NDJSON 스트리밍에는 `window.fetch`와 응답 스트림이 필요하다. 응답 전체를 버퍼링하는 방식으로 교체하지 않았다.
 - 자동 심사 도구가 위 권한 자체를 경고할 수 있다. 권한 사용 경고가 모두 사라진다고 보장하지 않는다. 의존성 감사 역시 실행 시점 레지스트리에 보고된 결과다.
 - 설정 화면은 공식 API 타입과 신·구 렌더 계약을 테스트했다. 실제 Obsidian 1.7.2·1.13 앱의 시각적 검증 및 외부 MCP 서버별 실행은 이 검증에 포함하지 않았다.
+
+## 후속 워크플로 점검 (0.7.10)
+
+0.7.9의 CI와 릴리스는 성공했지만 GitHub가 기존 Actions의 Node.js 20 폐기와 Node.js 24 강제 실행을 알렸다. 0.7.10에서 다음 버전으로 갱신하고 검증용 Node.js도 24로 맞췄다.
+
+- `actions/checkout@v7.0.1`
+- `actions/setup-node@v7.0.0`
+- `actions/attest-build-provenance@v4.2.2`
+- `softprops/action-gh-release@v3.0.3`
+
+각 공식 저장소의 `action.yml`에서 Node.js 24 런타임과 현재 워크플로의 입력 필드 지원을 확인했다. attestation의 내부 `actions/attest`도 Node.js 24를 사용한다. 앱 코드와 최소 Obsidian 버전은 바뀌지 않는다.
