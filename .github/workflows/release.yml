@@ -4,6 +4,12 @@ on:
   push:
     branches:
       - main
+    # 문서·릴리스 설정만 바뀌면 기존 배포 버전을 유지한다. 필요하면 수동 실행한다.
+    paths-ignore:
+      - "README*.md"
+      - "CHANGELOG.md"
+      - "docs/**"
+      - ".github/workflows/release.yml"
   workflow_dispatch:
     inputs:
       branch:

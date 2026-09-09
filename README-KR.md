@@ -12,6 +12,8 @@
 
 [English](README.md) | [한국어](README-KR.md) | [日本語](README-JA.md)
 
+이 문서는 **0.7.10** 기준입니다. 버전별 변경 사항은 [변경 이력](CHANGELOG.md)을 참고하세요.
+
 Obsidian용 AI 어시스턴트 사이드바 플러그인. AWS Bedrock, Google Gemini, OpenAI, Ollama 멀티프로바이더 백엔드를 지원합니다.
 
 > **명령 이름 안내**: 명령 팔레트 항목·알림·상태바·도구 실행 결과는 설정에서 고른 UI 언어(English, 한국어, 日本語)를 따릅니다. 옵시디언은 팔레트를 로드 시점에 캐시하므로, 언어를 바꾼 뒤에는 앱을 다시 열어야 새 이름이 보입니다.
@@ -63,7 +65,7 @@ Obsidian용 AI 어시스턴트 사이드바 플러그인. AWS Bedrock, Google Ge
 
 옵시디언 1.7.2 이상, 데스크톱 환경이 필요합니다.
 
-0.7.9부터 Obsidian 1.13 이상의 설정 검색에서 현재 백엔드에 표시되는 설정을 찾을 수 있습니다. 이전 Obsidian에서는 기존 설정 화면을 사용합니다.
+Obsidian 1.13 이상의 설정 검색에서 현재 백엔드에 표시되는 설정을 찾을 수 있습니다. 이전 Obsidian에서는 기존 설정 화면을 사용합니다.
 
 ### BRAT (권장)
 
@@ -106,17 +108,19 @@ Obsidian용 AI 어시스턴트 사이드바 플러그인. AWS Bedrock, Google Ge
 
 ### 2. 자격증명 구성
 
-**Bedrock:** AWS 콘솔(Bedrock → API keys)에서 발급한 **장기 Bedrock API 키**를 입력하고 AWS Region을 설정합니다. 키는 OS 키체인으로 암호화해 로컬에만 저장되며 볼트에 남지 않습니다.
+**Bedrock:** AWS 콘솔(Bedrock → API keys)에서 발급한 **Bedrock API 키**를 입력하고 AWS Region을 설정합니다. 플러그인은 키를 자동 갱신하지 않으므로 만료되면 교체해야 합니다.
 
-키 발급, 모델 접근 활성화, 여러 기기에서 사용하기: [Bedrock 설정 가이드](docs/bedrock-setup-kr.md)
+키 발급, 모델 접근 확인, 여러 기기에서 사용하기: [Bedrock 설정 가이드](docs/bedrock-setup-kr.md)
 
-> 0.3.0에서 AWS 액세스 키와 `~/.aws` 프로필(SSO 포함) 인증을 제거했습니다. 액세스 키는 장기 자격증명이라 위험이 크고, SSO는 기기마다 `aws sso login`과 8~12시간 주기 재로그인이 필요해 여러 기기에서 쓰는 노트 앱에는 부담이 큽니다. 기존 사용자는 설정에서 Bedrock API 키를 입력해야 합니다.
+> 0.3.0에서 AWS 액세스 키와 `~/.aws` 프로필(SSO 포함) 인증을 제거했습니다. 이 백엔드는 설정에 입력한 Bedrock API 키를 사용합니다.
 
 필수 IAM 권한:
+
 - `bedrock:InvokeModelWithResponseStream`
 - `bedrock:InvokeModel`
 - `bedrock:ListFoundationModels`
 - `bedrock:ListInferenceProfiles`
+- `bedrock:CallWithBearerToken`
 
 **Gemini:** [Google AI Studio](https://aistudio.google.com/)에서 발급한 API 키 입력
 
@@ -124,7 +128,7 @@ Obsidian용 AI 어시스턴트 사이드바 플러그인. AWS Bedrock, Google Ge
 
 **Ollama:** 서버 base URL 입력. 비워두면 `http://localhost:11434` 사용. API 키 불필요
 
-> **주의:** 자격증명은 OS 키체인 암호화로 로컬에 저장되며 iCloud로 동기화되지 않습니다. 각 기기에서 별도 설정 필요
+> **키 보관:** 로컬 저장에 성공한 키는 OS 키체인으로 암호화되며 볼트 동기화에 포함되지 않습니다. 각 기기에서 별도로 설정해야 합니다.
 
 암호화나 파일 저장에 실패하면 알림을 표시하고 기존 자격증명 파일을 보존합니다. 이전 버전의 `data.json`에 남아 있던 키는 로컬 저장이 성공한 뒤에만 제거합니다. 실패 중 입력한 새 키는 현재 세션에서만 유지되므로, 재시작 전에 키체인·파일 접근 문제를 해결하고 다시 저장하세요.
 
@@ -237,7 +241,7 @@ Obsidian용 AI 어시스턴트 사이드바 플러그인. AWS Bedrock, Google Ge
 - **볼트 전체 탐색** — 검색, Graph RAG 인덱싱, Second Brain, 파일 선택기에 Obsidian의 파일 목록 API를 사용합니다. 인덱싱은 대상 노트와 지원 텍스트 첨부를 청크로 나눠 **설정한 임베딩 API에 전송**합니다. 채팅에 첨부하거나 도구로 읽은 내용도 모델 요청에 포함될 수 있습니다. 로컬 Ollama를 제외한 외부 엔드포인트 사용 시 해당 내용은 기기 밖으로 나갑니다.
 - **클립보드** — 메시지 복사 버튼을 누를 때 쓰고 채팅 입력창에 붙여넣을 때 읽습니다. 복사가 완료된 뒤에만 성공 표시를 보여주며, 실패하면 알림을 표시합니다.
 
-수정 내용과 검증 범위는 [0.7.9 리뷰 기록](docs/review-0.7.9.md)에 정리했습니다.
+수정 내용과 검증 범위는 [0.7.10 리뷰 기록](docs/review-0.7.10.md)에 정리했습니다.
 
 ### 릴리스 검증
 

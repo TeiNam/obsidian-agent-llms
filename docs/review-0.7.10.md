@@ -1,6 +1,6 @@
-# 0.7.9 수정 리뷰
+# 0.7.10 수정·배포 리뷰
 
-2026-09-09 기준으로 0.7.8 대비 경고와 관련 실행 경로를 점검했다. 경고 억제 대신 저장 실패·프로세스 종료·설정 검색의 실제 동작을 수정했다. 최소 Obsidian 버전은 1.7.2이며, 스트리밍 요청과 한국어 IME 호환 처리는 유지한다.
+2026-09-09 배포한 **0.7.10** 기준으로 0.7.8 이후의 누적 수정과 검증을 기록한다. 저장 실패·프로세스 종료·설정 검색 수정은 0.7.9에, Actions 런타임 정리는 0.7.10에 반영했다. 최소 Obsidian 버전은 **1.7.2**이며, 스트리밍 요청과 한국어 IME 호환 처리는 유지한다.
 
 ## 수정 결과
 
@@ -24,7 +24,7 @@
 - `npm run build`: TypeScript 검사 및 배포 번들 생성 성공.
 - `npm test`: 92개 파일, 1,551개 테스트 통과.
 - `npm audit`: 보고된 취약점 0건.
-- 릴리스 YAML의 버전 증가 스크립트를 임시 저장소에서 실행했다. 태그가 없으면 0.7.9를 유지하고, 있으면 0.7.10으로 올리며, 두 경우 모두 네 버전 파일의 값이 일치했다.
+- 0.7.9 준비 당시 릴리스 YAML의 버전 증가 스크립트를 임시 저장소에서 실행했다. 태그가 없으면 0.7.9를 유지하고, 있으면 0.7.10으로 올리며, 두 경우 모두 네 버전 파일의 값이 일치했다.
 - 설정 전환 전후의 컨트롤 추가·변경·클릭 콜백 등록 수가 일치함을 AST로 비교했다.
 - 실제 Node 자식 프로세스를 MCP 서버로 실행해 JSON-RPC 왕복, 환경 변수 제한, SIGTERM 무시 후 강제 종료까지 검증했다. POSIX 신호 테스트는 macOS·Linux 대상이며 Windows 경로는 별도 단위 테스트로 검증한다.
 - 파일·키체인 실패 테스트는 실제 저장 모듈을 실행하면서 파일 시스템과 Electron 경계만 격리한다. 사용자 자격증명이나 볼트는 테스트에 사용하지 않는다.
@@ -50,7 +50,7 @@ git diff --check
 - 자동 심사 도구가 위 권한 자체를 경고할 수 있다. 권한 사용 경고가 모두 사라진다고 보장하지 않는다. 의존성 감사 역시 실행 시점 레지스트리에 보고된 결과다.
 - 설정 화면은 공식 API 타입과 신·구 렌더 계약을 테스트했다. 실제 Obsidian 1.7.2·1.13 앱의 시각적 검증 및 외부 MCP 서버별 실행은 이 검증에 포함하지 않았다.
 
-## 후속 워크플로 점검 (0.7.10)
+## 0.7.10 워크플로와 배포 검증
 
 0.7.9의 CI와 릴리스는 성공했지만 GitHub가 기존 Actions의 Node.js 20 폐기와 Node.js 24 강제 실행을 알렸다. 0.7.10에서 다음 버전으로 갱신하고 검증용 Node.js도 24로 맞췄다.
 
@@ -59,4 +59,36 @@ git diff --check
 - `actions/attest-build-provenance@v4.2.2`
 - `softprops/action-gh-release@v3.0.3`
 
-각 공식 저장소의 `action.yml`에서 Node.js 24 런타임과 현재 워크플로의 입력 필드 지원을 확인했다. attestation의 내부 `actions/attest`도 Node.js 24를 사용한다. 앱 코드와 최소 Obsidian 버전은 바뀌지 않는다.
+각 공식 저장소의 `action.yml`에서 Node.js 24 런타임과 현재 워크플로의 입력 필드 지원을 확인했다. attestation의 내부 `actions/attest`도 Node.js 24를 사용한다. 이는 CI·릴리스 실행 환경의 변경이며, 플러그인 사용자가 Node.js를 별도로 설치해야 한다는 뜻은 아니다.
+
+| 확인 항목 | 결과 |
+| --- | --- |
+| 수정 반영 | [PR #32](https://github.com/TeiNam/obsidian-agent-llms/pull/32), [PR #33](https://github.com/TeiNam/obsidian-agent-llms/pull/33) 모두 머지 |
+| 릴리스 소스 | 태그 `0.7.10`, 커밋 `887878d863068157bc6006ed6224febe8e47e055` |
+| 최종 CI | [실행 34365674711](https://github.com/TeiNam/obsidian-agent-llms/actions/runs/34365674711) 성공, annotation 0건 |
+| 최종 배포 | [실행 34365674713](https://github.com/TeiNam/obsidian-agent-llms/actions/runs/34365674713) 성공, annotation 0건 |
+| 배포 자산 | `main.js`·`manifest.json`·`styles.css` 다운로드, 크기·SHA-256·매니페스트 버전 및 세 파일의 attestation 검증 통과 |
+
+[0.7.10 릴리스](https://github.com/TeiNam/obsidian-agent-llms/releases/tag/0.7.10)의 다운로드 파일 기준 SHA-256:
+
+| 파일 | SHA-256 |
+| --- | --- |
+| `main.js` | `b0c175db95cc1639bec92fcbc2d507b4e45bc10e4e04a9aead43c62aac92f341` |
+| `manifest.json` | `03a84598d43a2306af4752aabb7feb04c107dfafd9ef684dd368d8e0b85d6a8a` |
+| `styles.css` | `371a47c4e6361c9db2a84560b6fce7438af662345c86ebd2c0014311426ecb9c` |
+
+빈 폴더에서 다음 명령으로 자산을 내려받고 빌드 출처를 확인할 수 있다.
+
+```bash
+gh release download 0.7.10 --repo TeiNam/obsidian-agent-llms \
+  --pattern main.js --pattern manifest.json --pattern styles.css
+for asset in main.js manifest.json styles.css; do
+  gh attestation verify "$asset" \
+    --repo TeiNam/obsidian-agent-llms \
+    --source-digest 887878d863068157bc6006ed6224febe8e47e055 \
+    --source-ref refs/heads/main \
+    --signer-workflow TeiNam/obsidian-agent-llms/.github/workflows/release.yml
+done
+```
+
+이 리뷰와 세 언어 가이드 정리는 배포 이후의 문서 변경이다. README·CHANGELOG·`docs/`·릴리스 워크플로만 바뀌면 자동 버전 증가와 배포를 건너뛰며, 기존 `0.7.10` 태그와 배포 자산은 유지한다. 필요하면 릴리스 워크플로를 수동 실행할 수 있다.
