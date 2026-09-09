@@ -386,30 +386,30 @@ body.theme-light .ba-message-content pre {
   background: var(--background-primary);
 }
 
-.ba-input {
+.ba-input-wrapper .ba-input {
   width: 100%;
   flex: 1 1 0;
   min-height: 60px;
   max-height: 200px;
   resize: none;
   padding: 8px 10px 10px 10px;
-  border: none !important;
+  border: none;
   border-radius: 6px;
-  background: transparent !important;
+  background: transparent;
   color: var(--text-normal);
   font-family: inherit;
   font-size: var(--ba-chat-font-size, 14px);
   line-height: 1.4;
-  box-shadow: none !important;
+  box-shadow: none;
   overflow-y: auto;
 }
 
-.ba-input:hover,
-.ba-input:focus {
-  outline: none !important;
-  border: none !important;
-  background: transparent !important;
-  box-shadow: none !important;
+.ba-input-wrapper .ba-input:hover,
+.ba-input-wrapper .ba-input:focus {
+  outline: none;
+  border: none;
+  background: transparent;
+  box-shadow: none;
 }
 
 .ba-input::placeholder {
@@ -1695,8 +1695,8 @@ body.theme-light .ba-message-content pre {
    ============================================ */
 
 /* MCP JSON 에디터 - 오류 시 빨간 테두리 */
-.ba-mcp-editor.has-error {
-  border-color: var(--text-error) !important;
+.ba-mcp-modal .ba-mcp-editor.has-error {
+  border-color: var(--text-error);
 }
 
 /* MCP JSON 에디터 - 오류 메시지 표시 영역 */
