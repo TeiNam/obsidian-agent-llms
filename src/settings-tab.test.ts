@@ -127,6 +127,7 @@ const h = vi.hoisted(() => {
   const settingRegistry: any[] = [];
   // Notice로 표시된 메시지 기록 (base URL 형식 오류 검증용)
   const noticeMessages: string[] = [];
+  const runtime = { declarative: false };
 
   // 범용 element 프록시: 임의의 DOM 메서드 호출을 견디는 체이닝 no-op 스텁.
   // create*/querySelector 등은 새 element를, 알 수 없는 메서드는 자기 자신을 반환한다.
@@ -191,7 +192,7 @@ const h = vi.hoisted(() => {
   // 캡처형 Setting: 생성된 이름/설명/컴포넌트를 기록한다. 알 수 없는 빌더 메서드도 견딘다.
   function createSetting(): any {
     const t: any = {
-      nameVal: "", descVal: "", heading: false, controlEl: makeEl(),
+      nameVal: "", descVal: "", heading: false, controlEl: makeEl(), settingEl: makeEl(),
       texts: [], dropdowns: [], toggles: [], buttons: [], sliders: [], textareas: [], extras: [],
     };
     const api: any = new Proxy(t, {
@@ -233,7 +234,7 @@ const h = vi.hoisted(() => {
     }
   }
 
-  return { settingRegistry, noticeMessages, makeEl, makeComp, MockSetting, MockNotice };
+  return { settingRegistry, noticeMessages, makeEl, makeComp, MockSetting, MockNotice, runtime };
 });
 
 // obsidian 모듈을 캡처형 Setting / Notice 로 모킹한다.
@@ -243,7 +244,9 @@ vi.mock("obsidian", () => ({
   Notice: h.MockNotice,
   Setting: h.MockSetting,
   setIcon: () => {},
+  setTooltip: () => {},
   normalizePath: (p: string) => p,
+  requireApiVersion: () => h.runtime.declarative,
   TFile: class {},
   TFolder: class {},
   Modal: class {
@@ -283,13 +286,14 @@ function makeTab(opts?: { settings?: Record<string, unknown>; listModels?: (...a
     settings: { ...structuredClone(DEFAULT_SETTINGS), ...(opts?.settings ?? {}) },
     saveSettings: vi.fn(async () => {}),
     recreateAiClient: vi.fn(),
+    refreshBranding: vi.fn(),
     clearAllSessions: vi.fn(async () => {}),
     readMcpConfig: vi.fn(async () => "{}"),
     saveMcpConfig: vi.fn(async () => {}),
     loadMcpConfig: vi.fn(async () => ({ connected: [], failed: [] })),
     aiClient: { listModels: opts?.listModels ?? vi.fn(async () => []) },
     indexer: { setSearchOptions: vi.fn(), client: {} },
-    mcpManager: { getStatus: () => [], setTimeout: vi.fn(), disconnectAll: vi.fn() },
+    mcpManager: { getStatus: () => [], setTimeout: vi.fn(), disconnectAll: vi.fn(), setLocale: vi.fn() },
   };
   const app: any = {
     vault: {
@@ -309,6 +313,13 @@ function makeTab(opts?: { settings?: Record<string, unknown>; listModels?: (...a
   return { tab, plugin, app };
 }
 
+function renderDefinition(definition: { name: string; desc?: string; render: (setting: any) => void }) {
+  const setting = new h.MockSetting() as any;
+  setting.setName(definition.name).setDesc(definition.desc ?? "");
+  definition.render(setting);
+  return setting;
+}
+
 describe("Multi-Provider 설정 UI (Task 8.2)", () => {
   beforeEach(() => {
     // Obsidian 전역 헬퍼(createDiv 등) 스텁 — addToggleVisibilityButton이 bare createDiv 사용
@@ -317,12 +328,67 @@ describe("Multi-Provider 설정 UI (Task 8.2)", () => {
     (globalThis as any).createSpan = () => h.makeEl();
     h.settingRegistry.length = 0;
     h.noticeMessages.length = 0;
+    h.runtime.declarative = false;
   });
 
   afterEach(() => {
     delete (globalThis as any).createDiv;
     delete (globalThis as any).createEl;
     delete (globalThis as any).createSpan;
+  });
+
+  it("검색 정의 수집은 모든 백엔드·언어에서 DOM·네트워크·저장 부수효과가 없다", () => {
+    for (const aiBackend of ["gemini", "bedrock", "openai", "ollama"]) {
+      for (const language of ["en", "ko", "ja"] as const) {
+        const { tab, plugin } = makeTab({
+          settings: { aiBackend, language, openaiApiKey: "secret-not-indexed" },
+        });
+        const original = structuredClone(plugin.settings);
+        const definitions = tab.getSettingDefinitions();
+        const rows = definitions.flatMap((section: any) => section.items);
+        expect(rows.map((row: any) => row.name)).toContain(I18N[language].mcpTimeout);
+        expect(rows.map((row: any) => row.name)).toContain(I18N[language].confirmToolExecution);
+        expect(rows.filter((row: any) => row.searchable !== false).length).toBeGreaterThan(25);
+        expect(JSON.stringify(definitions)).not.toContain("secret-not-indexed");
+        expect(h.settingRegistry).toHaveLength(0);
+        expect(plugin.aiClient.listModels).not.toHaveBeenCalled();
+        expect(plugin.saveSettings).not.toHaveBeenCalled();
+        expect(plugin.settings).toEqual(original);
+        expect(tab.embeddingSignatureSnapshot).toBeNull();
+      }
+    }
+  });
+
+  it("선언형 렌더링과 구버전 화면이 같은 설정 및 컨트롤을 제공한다", () => {
+    for (const aiBackend of ["gemini", "bedrock", "openai", "ollama"]) {
+      const { tab } = makeTab({ settings: { aiBackend } });
+      h.settingRegistry.length = 0;
+      tab.display();
+      const summarize = () => h.settingRegistry.filter((s: any) => !s.heading).map((s: any) => ({
+        name: s.nameVal, text: s.texts.length, toggle: s.toggles.length,
+        dropdown: s.dropdowns.length, button: s.buttons.length,
+      }));
+      const legacy = summarize();
+      h.settingRegistry.length = 0;
+      for (const section of tab.getSettingDefinitions()) {
+        for (const row of section.items) renderDefinition(row);
+      }
+      expect(summarize()).toEqual(legacy);
+    }
+  });
+
+  it("1.13+에서 언어 변경은 update로 검색 정의와 화면을 갱신한다", async () => {
+    h.runtime.declarative = true;
+    const { tab, plugin } = makeTab({ settings: { language: "en" } });
+    tab.update = vi.fn();
+    const row = tab.getSettingDefinitions().flatMap((section: any) => section.items)
+      .find((item: any) => item.name === I18N.en.language);
+    const setting = renderDefinition(row);
+    await setting.dropdowns[0]._onChange("ko");
+    expect(plugin.settings.language).toBe("ko");
+    expect(tab.update).toHaveBeenCalledTimes(1);
+    expect(tab.getSettingDefinitions().flatMap((section: any) => section.items)
+      .map((item: any) => item.name)).toContain(I18N.ko.language);
   });
 
   // --------------------------------------------------------------------------
@@ -397,15 +463,14 @@ describe("Multi-Provider 설정 UI (Task 8.2)", () => {
       h.noticeMessages.length = 0;
 
       // 헬퍼를 직접 호출하여 base URL 입력 onChange 동작을 관찰한다.
-      tab.addBaseUrlSetting(
-        h.makeEl(),
+      renderDefinition(tab.addBaseUrlSetting(
         "Base URL",
         "desc",
         "ph",
         () => plugin.settings.openaiBaseUrl,
         (v: string) => { plugin.settings.openaiBaseUrl = v; },
-        "INVALID_BASE_URL",
-      );
+        "INVALID_BASE_URL"
+      ));
       const text = h.settingRegistry.at(-1).texts[0];
 
       // scheme이 http(s)가 아닌 경우: 거부 + 이전 값 유지
@@ -424,15 +489,14 @@ describe("Multi-Provider 설정 UI (Task 8.2)", () => {
       });
       h.settingRegistry.length = 0;
 
-      tab.addBaseUrlSetting(
-        h.makeEl(),
+      renderDefinition(tab.addBaseUrlSetting(
         "Base URL",
         "desc",
         "ph",
         () => plugin.settings.openaiBaseUrl,
         (v: string) => { plugin.settings.openaiBaseUrl = v; },
-        "INVALID_BASE_URL",
-      );
+        "INVALID_BASE_URL"
+      ));
       const text = h.settingRegistry.at(-1).texts[0];
 
       await text._onChange("https://proxy.local/v1");
@@ -453,12 +517,13 @@ describe("Multi-Provider 설정 UI (Task 8.2)", () => {
       });
       h.settingRegistry.length = 0;
 
-      tab.addProviderModelDropdown(
-        h.makeEl(), "Chat", "desc",
+      renderDefinition(tab.addProviderModelDropdown(
+        "Chat",
+        "desc",
         () => plugin.settings.openaiChatModel,
         (v: string) => { plugin.settings.openaiChatModel = v; },
-        "chat",
-      );
+        "chat"
+      ));
       const dd = h.settingRegistry.at(-1).dropdowns[0];
       await flush();
 
@@ -475,12 +540,13 @@ describe("Multi-Provider 설정 UI (Task 8.2)", () => {
       });
       h.settingRegistry.length = 0;
 
-      tab.addProviderModelDropdown(
-        h.makeEl(), "Chat", "desc",
+      renderDefinition(tab.addProviderModelDropdown(
+        "Chat",
+        "desc",
         () => plugin.settings.openaiChatModel,
         (v: string) => { plugin.settings.openaiChatModel = v; },
-        "chat",
-      );
+        "chat"
+      ));
       const dd = h.settingRegistry.at(-1).dropdowns[0];
       await flush();
 
@@ -499,12 +565,13 @@ describe("Multi-Provider 설정 UI (Task 8.2)", () => {
       });
       h.settingRegistry.length = 0;
 
-      tab.addProviderModelDropdown(
-        h.makeEl(), "Chat", "desc",
+      renderDefinition(tab.addProviderModelDropdown(
+        "Chat",
+        "desc",
         () => plugin.settings.openaiChatModel,
         (v: string) => { plugin.settings.openaiChatModel = v; },
-        "chat",
-      );
+        "chat"
+      ));
       const dd = h.settingRegistry.at(-1).dropdowns[0];
       await flush();
 
@@ -527,12 +594,13 @@ describe("Multi-Provider 설정 UI (Task 8.2)", () => {
       });
       h.settingRegistry.length = 0;
 
-      tab.addProviderModelDropdown(
-        h.makeEl(), "Chat", "desc",
+      renderDefinition(tab.addProviderModelDropdown(
+        "Chat",
+        "desc",
         () => plugin.settings.openaiChatModel,
         (v: string) => { plugin.settings.openaiChatModel = v; },
-        "chat",
-      );
+        "chat"
+      ));
       const dd = h.settingRegistry.at(-1).dropdowns[0];
       await flush();
 
@@ -548,12 +616,13 @@ describe("Multi-Provider 설정 UI (Task 8.2)", () => {
       });
       h.settingRegistry.length = 0;
 
-      tab.addProviderModelDropdown(
-        h.makeEl(), "Embedding", "desc",
+      renderDefinition(tab.addProviderModelDropdown(
+        "Embedding",
+        "desc",
         () => plugin.settings.openaiEmbeddingModel,
         (v: string) => { plugin.settings.openaiEmbeddingModel = v; },
-        "embedding",
-      );
+        "embedding"
+      ));
       await flush();
 
       expect(listModels).toHaveBeenCalledWith("embedding");

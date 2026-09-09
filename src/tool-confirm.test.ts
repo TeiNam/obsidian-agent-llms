@@ -89,6 +89,11 @@ describe("needsToolConfirmation - Fault Condition (Property 1)", () => {
 // 비파괴적 도구 → 설정과 관계없이 즉시 실행 (false 반환)
 
 describe("needsToolConfirmation - Preservation (Property 2)", () => {
+  it("확인 설정이 켜져 있으면 MCP 도구도 확인하고, 꺼져 있으면 기존 동작을 유지한다", () => {
+    expect(needsToolConfirmation("mcp_files_delete_file", true)).toBe(true);
+    expect(needsToolConfirmation("mcp_search_fetch", true)).toBe(true);
+    expect(needsToolConfirmation("mcp_files_delete_file", false)).toBe(false);
+  });
   /**
    * Validates: Requirements 3.1
    */

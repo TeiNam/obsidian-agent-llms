@@ -29,8 +29,7 @@ import {
 } from "./session-recovery";
 import {
   decryptSettings,
-  stripSensitiveFields,
-  saveCredentialsToLocal,
+  persistSettingsWithCredentials,
   loadCredentialsFromLocal,
   SENSITIVE_FIELDS,
   LEGACY_SENSITIVE_FIELDS,
@@ -195,7 +194,6 @@ const DEFAULT_MCP_CONFIG = {
     fetch: {
       command: "docker",
       args: ["run", "-i", "--rm", "mcp/fetch"],
-      autoApprove: ["fetch"],
     },
     "brave-search": {
       command: "docker",
@@ -227,7 +225,7 @@ function digestSecret(value: string): string {
 }
 
 export default class GeminiAssistantPlugin extends Plugin {
-  settings!: GeminiAssistantSettings;
+  declare settings: GeminiAssistantSettings;
   aiClient!: IAiClient;
   indexer!: VaultIndexer;
   toolExecutor!: ToolExecutor;
@@ -1915,11 +1913,8 @@ export default class GeminiAssistantPlugin extends Plugin {
     if (hasMigratedKeys) {
       // 기존 data.json의 키를 복호화 후 로컬 파일로 저장
       const decrypted = decryptSettings(raw);
-      saveCredentialsToLocal(decrypted);
-      // data.json에서 민감 필드 제거하여 저장
-      const stripped = stripSensitiveFields(decrypted);
-      await this.saveData(stripped);
       this.settings = decrypted;
+      await this.persistSettings();
     } else {
       // 로컬 전용 파일에서 자격증명 로드.
       //
@@ -1959,12 +1954,18 @@ export default class GeminiAssistantPlugin extends Plugin {
     this.lastAccountScope = this.accountScopeKey();
   }
 
+  private credentialsSaveWarningShown = false;
+
+  private async persistSettings(): Promise<void> {
+    const saved = await persistSettingsWithCredentials(this.settings, this);
+    if (!saved && !this.credentialsSaveWarningShown) {
+      new Notice(noticeI18n(this.settings.language).credentialsNotSaved, 10000);
+    }
+    this.credentialsSaveWarningShown = !saved;
+  }
+
   async saveSettings(): Promise<void> {
-    // 민감 필드는 로컬 전용 파일에 암호화하여 저장 (iCloud 동기화 안 됨)
-    saveCredentialsToLocal(this.settings as unknown as Record<string, unknown>);
-    // data.json에는 민감 필드를 제거하여 저장 (iCloud 동기화 대상)
-    const stripped = stripSensitiveFields(this.settings);
-    await this.saveData(stripped);
+    await this.persistSettings();
     this.aiClient?.updateSettings(this.settings);
 
     // 설정 UI는 this.settings를 먼저 바꾼 뒤 saveSettings를 호출하므로, 이 함수

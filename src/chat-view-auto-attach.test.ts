@@ -1,4 +1,6 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+const notices = vi.hoisted(() => vi.fn());
 
 vi.mock("obsidian", () => {
   class Component {}
@@ -20,13 +22,66 @@ vi.mock("obsidian", () => {
     MarkdownRenderer: {},
     MarkdownView: class {},
     Modal,
-    Notice: class {},
+    Notice: class {
+      constructor(message: string) { notices(message); }
+    },
     TFile,
     WorkspaceLeaf: class {},
     normalizePath: (path: string) => path,
     requestUrl: vi.fn(),
     setIcon: vi.fn(),
   };
+});
+
+describe("ChatView 메시지 복사", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+    notices.mockClear();
+  });
+
+  function copyButton() {
+    const copy = { empty: vi.fn(), setText: vi.fn(), addEventListener: vi.fn() };
+    const content = { setText: vi.fn() };
+    const actions = { createSpan: () => copy };
+    const message = { createDiv: vi.fn().mockReturnValueOnce(content).mockReturnValueOnce(actions) };
+    const view = Object.create(ChatView.prototype) as any;
+    Object.assign(view, {
+      plugin: { settings: { language: "ko" } },
+      messagesEl: { createDiv: () => message },
+      scrollToBottom: vi.fn(),
+    });
+    view.renderUserMessage({ role: "user", content: "복사할 내용" });
+    return { copy, click: copy.addEventListener.mock.calls[0][1] as () => void };
+  }
+
+  it("클립보드 쓰기가 끝난 뒤에만 성공 표시를 보여준다", async () => {
+    vi.useFakeTimers();
+    const write = deferred<void>();
+    const writeText = vi.fn(() => write.promise);
+    vi.stubGlobal("navigator", { clipboard: { writeText } });
+    const { copy, click } = copyButton();
+    click();
+    expect(writeText).toHaveBeenCalledWith("복사할 내용");
+    expect(copy.setText).not.toHaveBeenCalled();
+    write.resolve();
+    await Promise.resolve();
+    expect(copy.setText).toHaveBeenCalledWith("✓");
+    expect(notices).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1500);
+    expect(copy.empty).toHaveBeenCalledTimes(2);
+  });
+
+  it.each(["reject", "unavailable"])("복사 실패(%s)는 성공 표시 없이 안내한다", async (failure) => {
+    vi.stubGlobal("navigator", failure === "reject"
+      ? { clipboard: { writeText: vi.fn().mockRejectedValue(new Error("denied")) } }
+      : {});
+    const { copy, click } = copyButton();
+    click();
+    await Promise.resolve();
+    expect(copy.setText).not.toHaveBeenCalled();
+    expect(notices).toHaveBeenCalledWith("클립보드에 복사하지 못했습니다. 다시 시도해 주세요.");
+  });
 });
 
 import { TFile } from "obsidian";

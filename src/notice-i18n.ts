@@ -11,6 +11,7 @@ import type { Locale } from "./types";
 
 export const NOTICE_I18N = {
   en: {
+    credentialsNotSaved: "API keys could not be saved securely. New keys are available only for this session; previously stored keys are preserved. Check the OS keychain and file permissions, then save again.",
     // ---- 명령 팔레트 ----
     cmdOpenAssistant: "Open assistant",
     cmdIndexVault: "Index vault",
@@ -177,6 +178,7 @@ export const NOTICE_I18N = {
   },
 
   ko: {
+    credentialsNotSaved: "API 키를 안전하게 저장하지 못했습니다. 새 키는 이번 세션에서만 사용되며 기존 저장 키는 보존됩니다. OS 키체인과 파일 권한을 확인한 뒤 다시 저장해 주세요.",
     // ---- 명령 팔레트 ----
     cmdOpenAssistant: "어시스턴트 열기",
     cmdIndexVault: "볼트 인덱싱",
@@ -340,6 +342,7 @@ export const NOTICE_I18N = {
   },
 
   ja: {
+    credentialsNotSaved: "APIキーを安全に保存できませんでした。新しいキーは今回のセッションでのみ使用され、以前のキーは保持されます。OSのキーチェーンとファイル権限を確認し、再度保存してください。",
     // ---- 명령 팔레트 ----
     cmdOpenAssistant: "アシスタントを開く",
     cmdIndexVault: "ボルトをインデックス",

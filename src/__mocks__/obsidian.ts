@@ -33,6 +33,14 @@ export function normalizePath(path: string): string {
   return path;
 }
 
+export function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  return Buffer.from(buffer).toString("base64");
+}
+
+export function base64ToArrayBuffer(value: string): ArrayBuffer {
+  return new Uint8Array(Buffer.from(value, "base64")).buffer;
+}
+
 // 아이콘 설정 스텁 (DOM 부수효과 없음)
 export function setIcon(_el: unknown, _icon: string): void {
   // 테스트에서는 무시

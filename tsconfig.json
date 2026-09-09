@@ -11,6 +11,7 @@
     "importHelpers": true,
     "isolatedModules": true,
     "lib": ["DOM", "ES2022"],
+    "types": ["node"],
     "outDir": "./dist",
     "paths": {
       "src/*": ["src/*"]

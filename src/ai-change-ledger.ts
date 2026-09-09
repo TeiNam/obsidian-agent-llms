@@ -1,4 +1,4 @@
-import { App, TFile, TFolder, normalizePath } from "obsidian";
+import { App, TFile, TFolder, arrayBufferToBase64, base64ToArrayBuffer, normalizePath } from "obsidian";
 
 export const AI_CHANGE_LEDGER_LIMIT = 20;
 
@@ -79,7 +79,7 @@ async function snapshotPath(app: App, path: string): Promise<AiPathSnapshot> {
   const target = app.vault.getAbstractFileByPath(path);
   if (target instanceof TFile) {
     const data = await app.vault.readBinary(target);
-    return { path, kind: "file", data: Buffer.from(data).toString("base64") };
+    return { path, kind: "file", data: arrayBufferToBase64(data) };
   }
   if (target instanceof TFolder) {
     const children = await Promise.all(
@@ -107,10 +107,9 @@ async function restoreSnapshot(app: App, snapshot: AiPathSnapshot): Promise<void
   if (slash > 0) await ensureFolder(app, snapshot.path.slice(0, slash));
 
   if (snapshot.kind === "file") {
-    const bytes = Buffer.from(snapshot.data, "base64");
     await app.vault.createBinary(
       snapshot.path,
-      bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)
+      base64ToArrayBuffer(snapshot.data)
     );
     return;
   }

@@ -901,7 +901,7 @@ export class ChatView extends ItemView {
 
           this.scrollToBottom();
 
-          // 파괴적 도구 실행 전 사용자 확인 모달 표시
+          // 확인 옵션이 켜져 있으면 파일 변경·MCP 도구 실행 전에 승인받는다.
           if (needsToolConfirmation(toolBlock.name, this.plugin.settings.confirmToolExecution)) {
             const approved = await new Promise<boolean>((resolve) => {
               new ToolConfirmModal(
@@ -993,15 +993,19 @@ export class ChatView extends ItemView {
     const actions = msgEl.createDiv({ cls: "ba-user-msg-actions" });
     const copyBtn = actions.createSpan({ attr: { "aria-label": this.t.copy } });
     setIcon(copyBtn, "copy");
-    copyBtn.addEventListener("click", () => {
-      void navigator.clipboard.writeText(msg.content);
-      copyBtn.empty();
-      copyBtn.setText("✓");
-      window.setTimeout(() => {
+    copyBtn.addEventListener("click", voidAsync(async () => {
+      try {
+        await navigator.clipboard.writeText(msg.content);
         copyBtn.empty();
-        setIcon(copyBtn, "copy");
-      }, 1500);
-    });
+        copyBtn.setText("✓");
+        window.setTimeout(() => {
+          copyBtn.empty();
+          setIcon(copyBtn, "copy");
+        }, 1500);
+      } catch {
+        new Notice(this.t.copyFailed);
+      }
+    }));
 
     this.scrollToBottom();
   }

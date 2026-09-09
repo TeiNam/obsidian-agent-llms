@@ -1,9 +1,7 @@
 # Agent LLMs
 
-[English](README.md) | [한국어](README-KR.md) | [日本語](README-JA.md)
-
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.4-blue.svg)
-![Obsidian](https://img.shields.io/badge/Obsidian-Plugin-7C3AED.svg)
+![Obsidian](https://img.shields.io/badge/Obsidian-1.7.2%2B-7C3AED.svg)
 ![AWS Bedrock](https://img.shields.io/badge/AWS-Bedrock-FF9900.svg)
 ![Google Gemini](https://img.shields.io/badge/Google-Gemini-4285F4.svg)
 ![OpenAI](https://img.shields.io/badge/OpenAI-GPT-412991.svg)
@@ -11,6 +9,8 @@
 ![License](https://img.shields.io/badge/License-MIT-green.svg)
 
 [![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-FFDD00?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/teinam)
+
+[English](README.md) | [한국어](README-KR.md) | [日本語](README-JA.md)
 
 AWS Bedrock、Google Gemini、OpenAI、Ollamaのマルチプロバイダーバックエンドに対応したObsidian AIアシスタントサイドバープラグインです。
 
@@ -56,12 +56,14 @@ AWS Bedrock、Google Gemini、OpenAI、Ollamaのマルチプロバイダーバ�
 - **応答再生成** — 最後のAI応答を再生成
 - **会話検索** — 保存されたチャットセッションを検索
 - **MCP JSONエディタ** — リアルタイム検証、自動フォーマット、括弧マッチング、テンプレート
-- **破壊的ツール確認** — ファイル操作前のオプション確認
+- **ノート変更・MCPツールの確認** — 設定を有効にすると、ファイル変更ツールとすべてのMCPツールの実行前に承認
 - **コンテキストウィンドウ管理** — 自動トークントリミング
 
 ## インストール
 
 Obsidian 1.7.2 以降、デスクトップ環境が必要です。
+
+0.7.9から、Obsidian 1.13以降の設定検索で現在のバックエンドに表示される設定を探せます。以前のObsidianでは従来の設定画面を利用します。
 
 ### BRAT（推奨）
 
@@ -205,6 +207,10 @@ Obsidian 1.7.2 以降、デスクトップ環境が必要です。
 
 `uvx`(Python)と`docker`の両方をサポートしています。
 
+APIキー、プロキシ、`DOCKER_HOST`などはサーバーごとの`env`に明示してください。親プロセスの環境全体は継承しません。値はボルトの`.obsidian/plugins/agent-llms/mcp.json`に保存されるため、秘密情報を入れる場合はこのファイルの同期範囲を管理してください。AIバックエンドキーのローカル暗号化保存とは別です。
+
+**ノート変更とMCPツールの確認**を有効にすると、すべてのMCP呼び出し前にツール名と入力を確認できます（既定は無効）。**すべて停止**は初期化中のサーバーも取り消します。
+
 ## ネットワーク使用
 
 このプラグインは以下の外部サービスにネットワークリクエストを送信します:
@@ -215,18 +221,21 @@ Obsidian 1.7.2 以降、デスクトップ環境が必要です。
 - **Ollama** — Ollamaバックエンド使用時、Ollamaサーバー(既定`http://localhost:11434`)にリクエストを送信。別の場所を指定しない限りローカル
 - **Webクリッパー** — Webクリッパー機能使用時、要約のためにターゲットURLをfetch
 - **MCPサーバー** — MCPサーバーが設定されている場合、stdioを介してローカルで生成されたMCPサーバープロセスと通信
+- **支援バナー** — 設定画面を開くと`cdn.buymeacoffee.com`から支援ボタンの画像を読み込みます
 
 サードパーティの分析や追跡サービスにデータは送信されません。
 
 ## システムアクセス
 
-ボルト以外でこのプラグインが触れる範囲は以下がすべてです。
+以下のアクセスは各機能に必要です。MCPサーバー自体の権限は別途適用されます。
 
-- **シェル実行**(`child_process.spawn`) — 設定 → MCPサーバーで自分で追加したMCPサーバーを起動するときだけ使用します。サーバーを設定しなければプロセスは一つも生成されず、コマンドは`shell: false`で実行されるためシェル解釈は行われません(`src/mcp-client.ts`)。
-- **ボルト外のファイルアクセス**(Node `fs`) — 二か所だけです。APIキーなどの資格情報は暗号化して、Electronの`userData`ディレクトリにある所有者専用(`0600`)のファイル一つに書き込みます。ボルト同期に乗らないよう意図的にボルトの外に置いています(`src/safe-storage.ts`)。もう一つは`existsSync`で`PATH`からMCPサーバーの実行ファイルを探す用途です(`src/mcp-client.ts`)。それ以外のパスは読み書きしません。
-- **環境変数** — `PATH`と`HOME`/`USERPROFILE`を読んで検索パスを再構成します。ObsidianはGUIアプリのためシェルの`PATH`を継承しないからです。その後、親環境をMCP子プロセスに渡し、`docker`や`uvx`で起動するサーバーが自身の設定を見つけられるようにします。環境変数の値をネットワークに送信することはありません。
-- **ボルト全体の列挙** — Graph RAGインデックスとSecond Brainレイヤーが検索インデックスを構築するためにボルトを走査します。ノートの内容が端末を離れるのは、設定したAIバックエンドへリクエストを送るときだけです。
-- **クリップボード** — メッセージのコピーボタンを押したときだけ書き込み、チャット入力欄に貼り付けたときだけ読み取ります。
+- **プロセス実行**(`child_process.spawn`) — 保存したMCP設定の起動・再接続時に、指定コマンドを`shell: false`で実行します。シェルは自動挿入しませんが、コマンドや引数のスクリプトを隔離するサンドボックスではありません。設定がなければ起動しません。停止から3秒経っても終了しない直接の子プロセスには強制終了シグナルを送ります。
+- **ボルト外のファイルアクセス**(Node `fs`) — AIバックエンドのキーはElectronの`userData`内の`agent-llms-credentials.json`に暗号化して保存します。同じディレクトリに権限`0600`の一時ファイルを完成させてから置換し、旧資格情報ファイルも同ディレクトリ内でコピーします。暗号化・保存に失敗すると通知し、既存ファイルを保持します。旧`data.json`のキーはローカル保存成功後にのみ除去します。保存できなかった新しいキーはメモリにのみ残るため、再起動前に問題を解消して再保存してください。MCP実行ファイルの検索はNodeの`spawn`と`PATH`処理に任せます。
+- **環境変数** — 既定では`PATH`、`HOME`、`USERPROFILE`、`APPDATA`、`LOCALAPPDATA`、`SYSTEMROOT`、`SYSTEMDRIVE`、`COMSPEC`、`PATHEXT`、`TMPDIR`、`TMP`、`TEMP`、`LANG`、`LC_ALL`、`LC_CTYPE`のみ継承し、サーバーごとの`env`で上書きします。他のトークンやランタイム設定は自動転送しません。明示的に渡した値の使用・送信はサーバーに依存します。
+- **ボルト全体の列挙** — 検索、Graph RAG、Second Brain、ファイル選択にObsidianのファイル一覧APIを使います。索引作成ではノートと対応テキスト添付を分割し、**設定した埋め込みAPIへ送信**します。添付ノートやツールで読んだ内容もモデルへのリクエストに含まれる場合があります。ローカルOllama以外の外部エンドポイントでは内容が端末外へ送られます。
+- **クリップボード** — コピーボタンで書き込み、チャットへの貼り付け時に読み取ります。書き込み完了後に成功表示を出し、失敗時は通知します。
+
+変更点と検証範囲は[0.7.9レビュー記録（韓国語）](docs/review-0.7.9.md)を参照してください。
 
 ### リリースの検証
 

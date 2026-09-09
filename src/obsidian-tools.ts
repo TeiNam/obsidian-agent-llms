@@ -463,8 +463,10 @@ export class ToolExecutor {
     toolName: string,
     input: Record<string, unknown>
   ): string[] {
-    const path = (key: string): string =>
-      typeof input[key] === "string" ? (input[key] as string) : "";
+    const path = (key: string): string => {
+      const value = input[key];
+      return typeof value === "string" ? value : "";
+    };
     switch (toolName) {
       case "create_note":
       case "edit_note":

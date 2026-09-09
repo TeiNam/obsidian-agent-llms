@@ -5,7 +5,7 @@
  * 민감한 문자열을 암복호화합니다.
  * 암호화된 데이터는 Base64 문자열로 로컬 전용 파일에 저장됩니다.
  *
- * safeStorage를 사용할 수 없는 환경에서는 평문 그대로 반환합니다 (graceful fallback).
+ * 암호화 헬퍼가 평문을 반환하면 영속화 계층이 저장을 거절하고 기존 파일을 보존합니다.
  *
  * --- iCloud 동기화 대응 ---
  * 민감한 키(Access Key, Secret Key, API Key)는 볼트 내 data.json이 아닌
@@ -39,7 +39,8 @@ interface NodeFsSubset {
     data: string,
     options: { encoding: string; mode: number }
   ): void;
-  chmodSync(path: string, mode: number): void;
+  renameSync(oldPath: string, newPath: string): void;
+  unlinkSync(path: string): void;
 }
 
 /** 이 모듈이 실제로 쓰는 `path` API만 좁혀 선언한다. */
@@ -224,16 +225,12 @@ export function stripSensitiveFields<T extends object>(settings: T): T {
 }
 
 /**
- * 민감한 자격증명을 로컬 전용 파일에 암호화하여 저장
- * Electron userData 경로에 저장하므로 iCloud 동기화 대상이 아닙니다.
- */
-/**
  * 파일에 기록할 자격증명 페이로드를 구성한다.
  *
  * OS 키체인을 쓸 수 없으면 encrypt가 평문을 그대로 돌려주는데, 장기 자격증명을
  * 평문 파일로 남기면 키체인 미구성 환경(예: Linux libsecret 없음)에서 키가
- * 디스크에 노출된다. 그런 필드는 페이로드에서 제외한다 — 값은 메모리의 설정에만
- * 남으므로 이번 세션 동작에는 영향이 없고, 다음 실행에서 재입력이 필요할 뿐이다.
+ * 디스크에 노출된다. 그런 필드는 페이로드에서 제외하고, 저장 함수는 누락을 감지해
+ * 기존 파일을 보존한다. 새 키는 메모리에만 남으며 재시작 전에 저장 재시도가 필요하다.
  *
  * 암호화 함수를 주입받아 순수 함수로 유지한다(테스트 가능).
  */
@@ -252,26 +249,59 @@ export function buildCredentialsPayload(
   return credentials;
 }
 
-export function saveCredentialsToLocal(settings: Record<string, unknown>): void {
+/** 같은 디렉터리의 완성된 임시 파일로 교체하여 실패 시 기존 파일을 보존한다. */
+function writeCredentialsFile(fs: NodeFsSubset, filePath: string, data: string): void {
+  const temporaryPath = `${filePath}.${window.crypto.randomUUID()}.tmp`;
+  try {
+    fs.writeFileSync(temporaryPath, data, { encoding: "utf-8", mode: 0o600 });
+    fs.renameSync(temporaryPath, filePath);
+  } finally {
+    try { fs.unlinkSync(temporaryPath); } catch { /* 교체 완료 또는 파일 생성 실패 */ }
+  }
+}
+
+export function saveCredentialsToLocal(settings: Record<string, unknown>): boolean {
   const filePath = getCredentialsFilePath();
-  if (!filePath || !nodeFs) return;
+  if (!filePath || !nodeFs) return false;
 
   const credentials = buildCredentialsPayload(settings);
-
+  // 하나라도 암호화하지 못하면 기존 자격증명 파일 전체를 보존한다.
+  if (SENSITIVE_FIELDS.some((field) => settings[field] && !credentials[field])) return false;
   try {
-    // 소유자만 읽고 쓸 수 있도록 제한한다(0600). 기존 파일도 권한을 재적용한다.
-    nodeFs.writeFileSync(filePath, JSON.stringify(credentials, null, 2), {
-      encoding: "utf-8",
-      mode: 0o600,
-    });
-    try {
-      nodeFs.chmodSync(filePath, 0o600);
-    } catch {
-      // Windows 등 chmod를 지원하지 않는 환경은 무시한다.
-    }
+    // 완성된 파일만 교체한다. 쓰기 실패가 기존 키 파일을 잘라 버리지 않게 한다.
+    writeCredentialsFile(nodeFs, filePath, JSON.stringify(credentials, null, 2));
+    return true;
   } catch (e) {
     console.error("자격증명 로컬 저장 실패:", e);
+    return false;
   }
+}
+
+/**
+ * 로컬 저장 실패 시 기존 마이그레이션 원본만 보존한다.
+ * 새 평문 키는 볼트에 쓰지 않으며, 비밀값 외 설정은 계속 저장할 수 있다.
+ */
+export async function persistSettingsWithCredentials<T extends object>(
+  settings: T,
+  storage: {
+    loadData(): Promise<unknown>;
+    saveData(data: unknown): Promise<void>;
+  },
+): Promise<boolean> {
+  const saved = saveCredentialsToLocal(settings as Record<string, unknown>);
+  const data = stripSensitiveFields(settings) as Record<string, unknown>;
+  if (!saved) {
+    const previous = await storage.loadData();
+    if (previous && typeof previous === "object") {
+      const record = previous as Record<string, unknown>;
+      for (const field of SENSITIVE_FIELDS) {
+        const value = record[field];
+        if (typeof value === "string" && value) data[field] = value;
+      }
+    }
+  }
+  await storage.saveData(data);
+  return saved;
 }
 
 /**
@@ -309,8 +339,9 @@ export function loadCredentialsFromLocal(): Record<string, string> {
 export function encryptSettings<T extends object>(settings: T): T {
   const result = { ...settings } as Record<string, unknown>;
   for (const field of SENSITIVE_FIELDS) {
-    if (field in result && typeof result[field] === "string") {
-      result[field] = encryptValue(result[field] as string);
+    const value = result[field];
+    if (typeof value === "string") {
+      result[field] = encryptValue(value);
     }
   }
   return result as T;
@@ -324,8 +355,9 @@ export function encryptSettings<T extends object>(settings: T): T {
 export function decryptSettings<T extends object>(settings: T): T {
   const result = { ...settings } as Record<string, unknown>;
   for (const field of SENSITIVE_FIELDS) {
-    if (field in result && typeof result[field] === "string") {
-      result[field] = decryptValue(result[field] as string);
+    const value = result[field];
+    if (typeof value === "string") {
+      result[field] = decryptValue(value);
     }
   }
   return result as T;
@@ -360,16 +392,7 @@ export function migrateCredentialsFile(
 
   try {
     const data = nodeFs.readFileSync(nodePath.join(dir, task.from), "utf-8");
-    // 자격증명 파일은 소유자만 읽고 쓸 수 있어야 한다(0600).
-    nodeFs.writeFileSync(nodePath.join(dir, task.to), data, {
-      encoding: "utf-8",
-      mode: 0o600,
-    });
-    try {
-      nodeFs.chmodSync(nodePath.join(dir, task.to), 0o600);
-    } catch {
-      // Windows 등 chmod 미지원 환경은 무시한다.
-    }
+    writeCredentialsFile(nodeFs, nodePath.join(dir, task.to), data);
     return true;
   } catch (e) {
     console.error("자격증명 파일 복사 실패:", e);

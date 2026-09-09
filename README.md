@@ -1,9 +1,7 @@
 # Agent LLMs
 
-[English](README.md) | [한국어](README-KR.md) | [日本語](README-JA.md)
-
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.4-blue.svg)
-![Obsidian](https://img.shields.io/badge/Obsidian-Plugin-7C3AED.svg)
+![Obsidian](https://img.shields.io/badge/Obsidian-1.7.2%2B-7C3AED.svg)
 ![AWS Bedrock](https://img.shields.io/badge/AWS-Bedrock-FF9900.svg)
 ![Google Gemini](https://img.shields.io/badge/Google-Gemini-4285F4.svg)
 ![OpenAI](https://img.shields.io/badge/OpenAI-GPT-412991.svg)
@@ -11,6 +9,8 @@
 ![License](https://img.shields.io/badge/License-MIT-green.svg)
 
 [![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-FFDD00?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/teinam)
+
+[English](README.md) | [한국어](README-KR.md) | [日本語](README-JA.md)
 
 An AI assistant sidebar plugin for Obsidian with multi-provider backend support — AWS Bedrock, Google Gemini, OpenAI, and Ollama.
 
@@ -56,12 +56,14 @@ An AI assistant sidebar plugin for Obsidian with multi-provider backend support 
 - **Response Regeneration** — Regenerate the last AI response
 - **Conversation Search** — Search through saved chat sessions
 - **MCP JSON Editor** — Real-time validation, auto-formatting, bracket matching, and templates
-- **Destructive Tool Confirmation** — Optional confirmation before file operations
+- **Note Change and MCP Tool Confirmation** — Optional approval before file-changing tools and every MCP tool call
 - **Context Window Management** — Automatic token trimming
 
 ## Installation
 
 Requires Obsidian 1.7.2 or later, on desktop.
+
+From 0.7.9, Obsidian 1.13+ settings search can find the settings shown for the current backend. Earlier Obsidian versions retain the settings screen.
 
 ### BRAT (Recommended)
 
@@ -207,6 +209,10 @@ Settings → MCP Servers → Edit Config:
 
 Both `uvx` (Python) and `docker` are supported.
 
+Declare API keys, proxies, `DOCKER_HOST`, and other server-specific values in that server's `env`; the full parent environment is no longer inherited. These values are stored in the vault's `.obsidian/plugins/agent-llms/mcp.json`, so manage that file's sync scope when it contains secrets. This is separate from local encrypted storage of AI backend keys.
+
+Enable **Confirm note changes and MCP tools** to review the tool name and input before every MCP call (off by default). **Stop all** also cancels servers that are still initializing.
+
 ## Network Usage
 
 This plugin makes network requests to the following external services:
@@ -217,18 +223,21 @@ This plugin makes network requests to the following external services:
 - **Ollama** — When using the Ollama backend, requests are sent to your Ollama server (default `http://localhost:11434`), which is local unless you point it elsewhere.
 - **Web Clipper** — When using the Web Clipper feature, the plugin fetches the target URL to retrieve page content for summarization.
 - **MCP Servers** — When MCP servers are configured, the plugin communicates with locally spawned MCP server processes via stdio.
+- **Sponsor banner** — Opening the settings screen loads the sponsor button image from `cdn.buymeacoffee.com`.
 
 No data is sent to any third-party analytics or tracking services.
 
 ## System Access
 
-Beyond the vault, the plugin touches the following. Each item lists its full scope.
+These capabilities support the features below. MCP servers have their own access privileges.
 
-- **Shell execution** (`child_process.spawn`) — Used only to start the MCP servers you add yourself under Settings → MCP Servers. Nothing is spawned until you configure a server, and commands run with `shell: false`, so no shell interpretation takes place. See `src/mcp-client.ts`.
-- **Filesystem access outside the vault** (Node `fs`) — Two places only. API keys and other credentials are encrypted and written to a single owner-only (`0600`) file under Electron's `userData` directory, deliberately kept out of the vault so vault sync never carries them (`src/safe-storage.ts`). Separately, `existsSync` locates the MCP server executable on `PATH` (`src/mcp-client.ts`). No other path on the system is read or written.
-- **Environment variables** — `PATH` and `HOME`/`USERPROFILE` are read to rebuild a usable search path, because Obsidian is a GUI app and does not inherit your shell's `PATH`. The parent environment is then passed to MCP child processes so that servers launched through `docker` or `uvx` find their own configuration. No environment value is sent over the network.
-- **Vault enumeration** — The Graph RAG index and the Second Brain layer walk the vault to build the search index. Note content leaves your machine only as part of a request to the AI backend you configured.
-- **Clipboard** — Written only when you press the copy button on a message; read only when you paste into the chat input.
+- **Process execution** (`child_process.spawn`) — Saved MCP commands run on startup or reconnection with `shell: false`. The plugin does not insert a shell, but it does not sandbox the command or scripts supplied as arguments. No server configuration means no server process. A direct child that remains alive three seconds after stopping receives a force-kill signal.
+- **Filesystem access outside the vault** (Node `fs`) — AI backend keys are encrypted in `agent-llms-credentials.json` under Electron's `userData` directory. A complete temporary file with mode `0600` replaces the destination; legacy credential files are copied within the same directory. Encryption/write failures preserve the previous file and show a notice. Legacy keys in `data.json` are removed only after local storage succeeds. Newly entered keys remain in memory if saving fails; resolve the issue and save again before restarting. MCP executable lookup uses Node's `spawn` and `PATH`.
+- **Environment variables** — Only `PATH`, `HOME`, `USERPROFILE`, `APPDATA`, `LOCALAPPDATA`, `SYSTEMROOT`, `SYSTEMDRIVE`, `COMSPEC`, `PATHEXT`, `TMPDIR`, `TMP`, `TEMP`, `LANG`, `LC_ALL`, and `LC_CTYPE` are inherited by default. Per-server `env` overrides are then applied. Other tokens and runtime options are not passed automatically. A server controls how it uses or transmits values explicitly provided to it.
+- **Vault enumeration** — Search, Graph RAG indexing, Second Brain, and file selection use Obsidian's file-list APIs. Indexing splits notes and supported text attachments into chunks and **sends them to the configured embedding API**. Attached notes and tool-read content can also enter model requests. Remote endpoints receive this content; local Ollama keeps these requests on the device.
+- **Clipboard** — Written when you press a message's copy button and read when you paste into chat. Success appears only after the write completes; failures show a notice.
+
+See the [0.7.9 review record (Korean)](docs/review-0.7.9.md) for changes and validation scope.
 
 ### Verifying a release
 
