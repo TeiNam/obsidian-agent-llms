@@ -9,6 +9,7 @@
  *  파일에 추가된다.)
  */
 
+import { arrayBufferToBase64 } from "obsidian";
 import type {
 	ModelInfo,
 	ConverseMessage,
@@ -372,10 +373,10 @@ export function attachmentMimeType(ext: string): string | null {
 
 /**
  * 바이트열을 base64로 인코딩한다.
- * Electron 렌더러와 Node(테스트) 모두 Buffer를 제공하므로 그것을 쓴다.
+ * 뷰의 바이트 범위만 복사해 Obsidian의 공식 변환 API에 전달한다.
  */
 export function bytesToBase64(bytes: Uint8Array): string {
-	return Buffer.from(bytes).toString("base64");
+	return arrayBufferToBase64(new Uint8Array(bytes).buffer);
 }
 
 /** effort 값의 강도 순서(약함 → 강함). clampEffort의 근접 값 선택 기준. */

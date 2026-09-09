@@ -1,9 +1,7 @@
 # Agent LLMs
 
-[English](README.md) | [한국어](README-KR.md) | [日本語](README-JA.md)
-
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.4-blue.svg)
-![Obsidian](https://img.shields.io/badge/Obsidian-Plugin-7C3AED.svg)
+![Obsidian](https://img.shields.io/badge/Obsidian-1.7.2%2B-7C3AED.svg)
 ![AWS Bedrock](https://img.shields.io/badge/AWS-Bedrock-FF9900.svg)
 ![Google Gemini](https://img.shields.io/badge/Google-Gemini-4285F4.svg)
 ![OpenAI](https://img.shields.io/badge/OpenAI-GPT-412991.svg)
@@ -11,6 +9,8 @@
 ![License](https://img.shields.io/badge/License-MIT-green.svg)
 
 [![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-FFDD00?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/teinam)
+
+[English](README.md) | [한국어](README-KR.md) | [日本語](README-JA.md)
 
 Obsidian용 AI 어시스턴트 사이드바 플러그인. AWS Bedrock, Google Gemini, OpenAI, Ollama 멀티프로바이더 백엔드를 지원합니다.
 
@@ -56,12 +56,14 @@ Obsidian용 AI 어시스턴트 사이드바 플러그인. AWS Bedrock, Google Ge
 - **응답 재생성** — 마지막 AI 응답 재생성
 - **대화 검색** — 저장된 채팅 세션 검색
 - **MCP JSON 편집기** — 실시간 검증, 자동 포매팅, 괄호 매칭, 템플릿
-- **파괴적 도구 확인** — 파일 작업 전 선택적 확인
+- **노트 변경·MCP 도구 실행 확인** — 확인 옵션을 켜면 파일 변경 도구와 모든 MCP 도구를 실행하기 전에 승인
 - **컨텍스트 윈도우 관리** — 자동 토큰 트리밍
 
 ## 설치
 
 옵시디언 1.7.2 이상, 데스크톱 환경이 필요합니다.
+
+0.7.9부터 Obsidian 1.13 이상의 설정 검색에서 현재 백엔드에 표시되는 설정을 찾을 수 있습니다. 이전 Obsidian에서는 기존 설정 화면을 사용합니다.
 
 ### BRAT (권장)
 
@@ -123,6 +125,8 @@ Obsidian용 AI 어시스턴트 사이드바 플러그인. AWS Bedrock, Google Ge
 **Ollama:** 서버 base URL 입력. 비워두면 `http://localhost:11434` 사용. API 키 불필요
 
 > **주의:** 자격증명은 OS 키체인 암호화로 로컬에 저장되며 iCloud로 동기화되지 않습니다. 각 기기에서 별도 설정 필요
+
+암호화나 파일 저장에 실패하면 알림을 표시하고 기존 자격증명 파일을 보존합니다. 이전 버전의 `data.json`에 남아 있던 키는 로컬 저장이 성공한 뒤에만 제거합니다. 실패 중 입력한 새 키는 현재 세션에서만 유지되므로, 재시작 전에 키체인·파일 접근 문제를 해결하고 다시 저장하세요.
 
 ### 3. 사이드바 열기
 
@@ -205,6 +209,10 @@ Obsidian용 AI 어시스턴트 사이드바 플러그인. AWS Bedrock, Google Ge
 
 `uvx`(Python)와 `docker` 모두 지원됩니다.
 
+서버에 필요한 API 키, 프록시, `DOCKER_HOST` 등은 해당 서버의 `env`에 명시하세요. 부모 프로세스의 전체 환경은 상속하지 않습니다. `env` 값은 볼트의 `.obsidian/plugins/agent-llms/mcp.json`에 저장되므로, 이 파일에 입력하는 비밀값의 동기화 범위를 직접 관리해야 합니다. AI 백엔드 키의 로컬 암호화 저장과는 별개입니다.
+
+설정의 **노트 변경·MCP 도구 실행 확인**을 켜면 모든 MCP 도구 호출 전에 도구 이름과 입력을 확인할 수 있습니다(기본 꺼짐). **모두 종료**는 초기화 중인 서버도 취소합니다.
+
 ## 네트워크 사용
 
 이 플러그인은 다음 외부 서비스에 네트워크 요청을 보냅니다:
@@ -215,18 +223,21 @@ Obsidian용 AI 어시스턴트 사이드바 플러그인. AWS Bedrock, Google Ge
 - **Ollama** — Ollama 백엔드 사용 시 Ollama 서버(기본 `http://localhost:11434`)로 요청. 다른 곳을 가리키지 않는 한 로컬입니다
 - **웹 클리퍼** — 웹 클리퍼 기능 사용 시 요약을 위해 대상 URL을 가져옵니다
 - **MCP 서버** — MCP 서버가 구성되어 있으면 stdio를 통해 로컬에서 실행된 MCP 서버 프로세스와 통신합니다
+- **후원 배너** — 설정 화면을 열면 `cdn.buymeacoffee.com`에서 후원 버튼 이미지를 불러옵니다
 
 서드파티 분석 또는 추적 서비스로는 데이터를 전송하지 않습니다.
 
 ## 시스템 접근
 
-볼트 밖에서 이 플러그인이 접근하는 범위는 다음이 전부입니다.
+다음 접근은 기능 구현에 필요하며, MCP 서버 자체의 권한은 별도로 적용됩니다.
 
-- **셸 실행**(`child_process.spawn`) — 설정 → MCP 서버에서 직접 추가한 MCP 서버를 실행할 때만 사용합니다. 서버를 구성하지 않으면 아무 프로세스도 생성되지 않고, 명령은 `shell: false`로 실행되어 셸 해석을 거치지 않습니다(`src/mcp-client.ts`).
-- **볼트 밖 파일 접근**(Node `fs`) — 두 곳뿐입니다. API 키 등 자격증명은 암호화해 Electron `userData` 디렉터리의 소유자 전용(`0600`) 파일 하나에 기록합니다. 볼트 동기화에 실려 가지 않도록 의도적으로 볼트 밖에 둡니다(`src/safe-storage.ts`). 그리고 `existsSync`로 `PATH`에서 MCP 서버 실행 파일을 찾습니다(`src/mcp-client.ts`). 그 외 경로는 읽지도 쓰지도 않습니다.
-- **환경 변수** — `PATH`와 `HOME`/`USERPROFILE`을 읽어 검색 경로를 재구성합니다. 옵시디언은 GUI 앱이라 셸의 `PATH`를 상속받지 못하기 때문입니다. 이후 부모 환경을 MCP 자식 프로세스에 전달해 `docker`·`uvx`로 띄우는 서버가 자기 설정을 찾을 수 있게 합니다. 환경 변수 값을 네트워크로 보내지는 않습니다.
-- **볼트 전체 탐색** — Graph RAG 인덱스와 Second Brain 레이어가 검색 인덱스를 만들기 위해 볼트를 순회합니다. 노트 내용이 기기를 떠나는 것은 설정한 AI 백엔드로 요청을 보낼 때뿐입니다.
-- **클립보드** — 메시지의 복사 버튼을 누를 때만 쓰고, 채팅 입력창에 붙여넣을 때만 읽습니다.
+- **프로세스 실행**(`child_process.spawn`) — 저장한 MCP 설정을 시작·재연결할 때 지정한 명령을 `shell: false`로 실행합니다. 플러그인이 셸을 자동으로 끼우지는 않지만, 명령 자체나 인자로 지정한 스크립트의 파일·네트워크 접근을 격리하는 샌드박스는 아닙니다. 서버 설정이 없으면 실행하지 않습니다. 중지 후 3초 동안 종료되지 않은 직접 자식 프로세스에는 강제 종료 신호를 보냅니다.
+- **볼트 밖 파일 접근**(Node `fs`) — AI 백엔드 키는 Electron `userData`의 `agent-llms-credentials.json`에 암호화해 저장합니다. 같은 디렉터리에 권한 `0600`의 임시 파일을 완성한 뒤 교체하며, 구 플러그인 자격증명 파일도 이 디렉터리 안에서 복사합니다. MCP 실행 파일 검색은 Node의 `spawn`과 `PATH` 처리에 맡깁니다.
+- **환경 변수** — MCP에는 `PATH`, `HOME`, `USERPROFILE`, `APPDATA`, `LOCALAPPDATA`, `SYSTEMROOT`, `SYSTEMDRIVE`, `COMSPEC`, `PATHEXT`, `TMPDIR`, `TMP`, `TEMP`, `LANG`, `LC_ALL`, `LC_CTYPE`만 기본 상속합니다. 여기에 서버별 `env`를 덮어씁니다. 그 밖의 토큰·런타임 옵션은 자동 전달하지 않습니다. 서버가 명시적으로 받은 값의 사용·전송은 그 서버에 달려 있습니다.
+- **볼트 전체 탐색** — 검색, Graph RAG 인덱싱, Second Brain, 파일 선택기에 Obsidian의 파일 목록 API를 사용합니다. 인덱싱은 대상 노트와 지원 텍스트 첨부를 청크로 나눠 **설정한 임베딩 API에 전송**합니다. 채팅에 첨부하거나 도구로 읽은 내용도 모델 요청에 포함될 수 있습니다. 로컬 Ollama를 제외한 외부 엔드포인트 사용 시 해당 내용은 기기 밖으로 나갑니다.
+- **클립보드** — 메시지 복사 버튼을 누를 때 쓰고 채팅 입력창에 붙여넣을 때 읽습니다. 복사가 완료된 뒤에만 성공 표시를 보여주며, 실패하면 알림을 표시합니다.
+
+수정 내용과 검증 범위는 [0.7.9 리뷰 기록](docs/review-0.7.9.md)에 정리했습니다.
 
 ### 릴리스 검증
 

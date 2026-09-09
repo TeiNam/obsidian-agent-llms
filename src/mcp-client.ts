@@ -1,6 +1,5 @@
-import { ChildProcess, spawn } from "child_process";
-import { existsSync } from "fs";
-import { delimiter, isAbsolute, join } from "path";
+import { type ChildProcess, spawn } from "child_process";
+import { delimiter, posix, win32 } from "path";
 import type { ToolDefinition } from "./types";
 import { BRANDING } from "./branding";
 import { formatToolError } from "./tool-failure-tracker";
@@ -9,20 +8,37 @@ import { toolI18n } from "./tool-result-i18n";
 import { getErrorMessage } from "./error-utils";
 import type { Locale } from "./types";
 
-// PATH에서 실행 파일의 절대 경로를 찾는 유틸리티 (GUI 앱에서 which 대체)
-function resolveCommand(command: string, pathEnv: string): string {
-  if (isAbsolute(command)) return command;
-  for (const dir of pathEnv.split(delimiter)) {
-    if (!dir) continue;
-    const full = join(dir, command);
-    if (existsSync(full)) return full;
-  }
-  return command;
-}
-
 /** 운영체제 PATH 구분자로 빈 항목 없이 결합한다. */
 export function joinSearchPath(paths: readonly string[], separator = delimiter): string {
   return paths.filter(Boolean).join(separator);
+}
+
+/** 실행 경로·로케일·임시 폴더만 상속한다. 서버별 비밀값은 config.env로 명시한다. */
+export function buildMcpEnvironment(
+  overrides: Record<string, string> = {},
+  parent: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = process.platform,
+): NodeJS.ProcessEnv {
+  const allowed = new Set([
+    "PATH", "HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA",
+    "SYSTEMROOT", "SYSTEMDRIVE", "COMSPEC", "PATHEXT",
+    "TMPDIR", "TMP", "TEMP", "LANG", "LC_ALL", "LC_CTYPE",
+  ]);
+  const env: NodeJS.ProcessEnv = {};
+  const path = platform === "win32" ? win32 : posix;
+  const keyOf = (key: string) => platform === "win32" ? key.toUpperCase() : key;
+  for (const [key, value] of Object.entries(parent)) {
+    const normalized = keyOf(key);
+    if (allowed.has(normalized) && value !== undefined) env[normalized] = value;
+  }
+  const homeDir = env.HOME || env.USERPROFILE;
+  env.PATH = joinSearchPath([
+    ...(platform === "win32" ? [] : ["/usr/local/bin", "/opt/homebrew/bin"]),
+    ...(homeDir ? [path.join(homeDir, ".local", "bin"), path.join(homeDir, ".cargo", "bin")] : []),
+    env.PATH || (platform === "win32" ? "" : "/usr/bin:/bin"),
+  ], platform === "win32" ? ";" : ":");
+  for (const [key, value] of Object.entries(overrides)) env[keyOf(key)] = value;
+  return env;
 }
 
 // MCP 서버 설정 타입
@@ -194,52 +210,42 @@ class McpServerConnection {
   // 서버 프로세스 시작 및 초기화
   async connect(): Promise<void> {
     if (this.config.disabled) return;
-
-    // GUI 앱(옵시디언)은 쉘의 PATH를 상속받지 못하므로 일반적인 경로를 보강
-    const home = process.env.HOME || process.env.USERPROFILE;
-    const extraPaths = [
-      ...(process.platform === "win32" ? [] : ["/usr/local/bin", "/opt/homebrew/bin"]),
-      ...(home ? [join(home, ".local", "bin"), join(home, ".cargo", "bin")] : []),
-    ];
-    const currentPath = process.env.PATH || (process.platform === "win32" ? "" : "/usr/bin:/bin");
-    const augmentedPath = joinSearchPath([...extraPaths, currentPath]);
-    const env = {
-      ...process.env,
-      PATH: augmentedPath,
-      ...(this.config.env || {}),
-    };
-
-    // command를 절대 경로로 resolve
-    const resolvedCommand = resolveCommand(this.config.command, augmentedPath);
-
-    this.process = spawn(resolvedCommand, this.config.args || [], {
+    if (this.intentionalDisconnect) throw new Error(this.t.mcpConnectionClosed);
+    this.buffer = "";
+    // 실행 파일 탐색은 spawn의 env.PATH 처리에 맡긴다.
+    const proc = spawn(this.config.command, this.config.args || [], {
       stdio: ["pipe", "pipe", "pipe"],
-      env,
+      env: buildMcpEnvironment(this.config.env),
       shell: false,
     });
+    this.process = proc;
 
     // stdout에서 JSON-RPC 응답 수신
-    this.process.stdout?.on("data", (data: Buffer) => {
+    proc.stdout?.on("data", (data: Buffer) => {
+      if (this.process !== proc) return;
       this.buffer += data.toString();
       this.processBuffer();
     });
 
-    this.process.stderr?.on("data", (data: Buffer) => {
+    proc.stderr?.on("data", (data: Buffer) => {
       console.error(`[MCP:${this.name}] stderr:`, data.toString().trim());
     });
 
-    this.process.on("error", (err) => {
+    proc.on("error", (err) => {
+      if (this.process !== proc) return;
       console.error(`[MCP:${this.name}] 프로세스 오류:`, err);
       this._connected = false;
+      this.rejectPending(err);
+    });
+    // 종료 중 파이프 쓰기가 실패해도 처리되지 않은 error 이벤트를 남기지 않는다.
+    proc.stdin?.on("error", (err) => {
+      if (this.process === proc) this.rejectPending(err);
     });
 
-    this.process.on("exit", (code) => {
+    proc.on("exit", (code) => {
+      if (this.process !== proc) return;
       this._connected = false;
-      for (const [, p] of this.pending) {
-        window.clearTimeout(p.timer);
-        p.reject(new Error(this.t.mcpServerExited(code)));
-      }
-      this.pending.clear();
+      this.rejectPending(new Error(this.t.mcpServerExited(code)));
 
       // 비정상 종료 시 자동 재연결 시도
       if (!this.intentionalDisconnect && code !== 0 && this.reconnectAttempts < McpServerConnection.MAX_RECONNECT) {
@@ -257,17 +263,7 @@ class McpServerConnection {
       }
     });
 
-    // 프로세스가 준비될 때까지 대기 (도커 컨테이너 등 시작 시간 필요)
-    await new Promise<void>((resolve) => {
-      if (this.process?.pid) {
-        resolve();
-      } else {
-        this.process?.once("spawn", () => resolve());
-        this.process?.once("error", () => resolve());
-      }
-    });
-
-    // MCP 초기화 핸드셰이크
+    // 파이프는 프로세스 시작 전 쓰기를 버퍼링한다. 시작 실패는 위 error 경로로 전달된다.
     try {
       await this.sendRequest("initialize", {
         protocolVersion: "2024-11-05",
@@ -275,9 +271,11 @@ class McpServerConnection {
         clientInfo: { name: BRANDING.pluginId, version: "0.1.0" },
       });
 
+      if (this.process !== proc || this.intentionalDisconnect) {
+        throw new Error(this.t.mcpConnectionClosed);
+      }
       this.sendNotification("notifications/initialized", {});
       this._connected = true;
-      this.intentionalDisconnect = false; // 연결 성공 시 의도적 종료 플래그 리셋
 
       await this.refreshTools();
     } catch (error) {
@@ -289,8 +287,10 @@ class McpServerConnection {
 
   // 도구 목록 갱신
   async refreshTools(): Promise<void> {
+    const proc = this.process;
     try {
       const result = (await this.sendRequest("tools/list", {})) as { tools: McpToolDef[] };
+      if (this.process !== proc) return;
       this._tools = (result.tools || []).map((t) => ({
         name: `mcp_${this.name}_${t.name}`,
         description: `[MCP:${this.name}] ${t.description || t.name}`,
@@ -299,6 +299,7 @@ class McpServerConnection {
         _mcpToolName: t.name,
       }));
     } catch (error) {
+      if (this.process !== proc) return;
       console.error(`[MCP:${this.name}] 도구 목록 가져오기 실패:`, error);
       this._tools = [];
     }
@@ -426,22 +427,29 @@ class McpServerConnection {
     }
     this._connected = false;
     this._tools = [];
-    if (this.process) {
+    const proc = this.process;
+    this.process = null;
+    if (proc && proc.exitCode === null && proc.signalCode === null) {
+      // killed는 신호 전송 여부다. 실제 종료 코드가 없으면 강제 종료를 예약한다.
+      const timer = window.setTimeout(() => {
+        if (proc.exitCode === null && proc.signalCode === null) {
+          try { proc.kill("SIGKILL"); } catch { /* 이미 종료된 경우 */ }
+        }
+      }, 3000);
+      proc.once("exit", () => window.clearTimeout(timer));
       try {
         // stdin을 먼저 닫아서 도커 컨테이너(-i 모드)도 정상 종료되도록 함
-        this.process.stdin?.end();
-        this.process.kill();
+        proc.stdin?.end();
+        proc.kill();
       } catch { /* 이미 종료된 경우 */ }
-      // SIGTERM으로 안 죽으면 강제 종료
-      const proc = this.process;
-      window.setTimeout(() => {
-        try { if (!proc.killed) proc.kill("SIGKILL"); } catch { /* 무시 */ }
-      }, 3000);
-      this.process = null;
     }
+    this.rejectPending(new Error(this.t.mcpConnectionClosed));
+  }
+
+  private rejectPending(error: Error): void {
     for (const [, p] of this.pending) {
       window.clearTimeout(p.timer);
-      p.reject(new Error(this.t.mcpConnectionClosed));
+      p.reject(error);
     }
     this.pending.clear();
   }
@@ -455,6 +463,7 @@ export class McpManager {
   private _locale: Locale | undefined;
   // prefixedName → serverName 매핑 (서버 이름에 _가 포함된 경우에도 정확한 라우팅 보장)
   private toolServerMap = new Map<string, string>();
+  private generation = 0;
 
   /** 모든 서버의 오류 문구 표시 언어를 설정한다. 이후 새로 만드는 연결에도 적용된다. */
   setLocale(locale: Locale | undefined): void {
@@ -491,23 +500,32 @@ export class McpManager {
     if (locale !== undefined) this._locale = locale;
     const nextConfig = parseMcpConfig(configJson, locale);
     this.disconnectAll();
+    const generation = this.generation;
     this.config = nextConfig;
 
     const connected: string[] = [];
     const failed: string[] = [];
 
     for (const [name, serverConfig] of Object.entries(this.config.mcpServers)) {
+      if (generation !== this.generation) return { connected: [], failed: [] };
       if (serverConfig.disabled) continue;
       const conn = new McpServerConnection(name, serverConfig);
       // initialize/tools/list도 사용자 설정 타임아웃을 사용해야 한다.
       conn.setTimeoutSeconds(this._timeoutSeconds);
       conn.setLocale(this._locale);
       conn.onReconnect = () => this.updateToolServerMap();
+      // 초기화 중인 연결도 중지·새 설정 로드의 종료 대상이다.
+      this.servers.set(name, conn);
       try {
         await conn.connect();
-        this.servers.set(name, conn);
+        if (generation !== this.generation) {
+          conn.disconnect();
+          return { connected: [], failed: [] };
+        }
         connected.push(name);
       } catch (error) {
+        if (generation !== this.generation) return { connected: [], failed: [] };
+        if (this.servers.get(name) === conn) this.servers.delete(name);
         console.error(`[MCP] ${name} 연결 실패:`, error);
         failed.push(name);
       }
@@ -577,6 +595,7 @@ export class McpManager {
 
   // 모든 서버 종료
   disconnectAll(): void {
+    this.generation++;
     for (const server of this.servers.values()) server.disconnect();
     this.servers.clear();
     this.toolServerMap.clear();

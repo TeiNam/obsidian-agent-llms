@@ -28,5 +28,7 @@ export const DESTRUCTIVE_TOOLS = [
  * @returns 확인이 필요하면 true, 아니면 false
  */
 export function needsToolConfirmation(toolName: string, confirmToolExecution: boolean): boolean {
-  return confirmToolExecution && DESTRUCTIVE_TOOLS.includes(toolName);
+  // 외부 MCP 도구는 이름이나 서버의 자체 설명만으로 읽기 전용이라고 신뢰하지 않는다.
+  return confirmToolExecution &&
+    (DESTRUCTIVE_TOOLS.includes(toolName) || toolName.startsWith("mcp_"));
 }

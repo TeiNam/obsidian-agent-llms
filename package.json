@@ -1,6 +1,6 @@
 {
   "name": "obsidian-agent-llms",
-  "version": "0.7.8",
+  "version": "0.7.9",
   "description": "Obsidian sidebar agentic LLM assistant with four backends (AWS Bedrock, Google Gemini, OpenAI, Ollama)",
   "main": "main.js",
   "scripts": {
@@ -17,11 +17,11 @@
     "@eslint/js": "^9.39.5",
     "@eslint/json": "^0.14.0",
     "@types/node": "^20.0.0",
-    "esbuild": "^0.21.0",
+    "esbuild": "^0.28.2",
     "eslint": "^9.39.5",
     "eslint-plugin-obsidianmd": "^0.4.2",
     "fast-check": "^3.23.2",
-    "obsidian": "latest",
+    "obsidian": "1.13.1",
     "tslib": "2.6.2",
     "typescript": "5.4.5",
     "typescript-eslint": "^8.69.0",

@@ -13,7 +13,7 @@ export default defineConfig([
       "dist/**",
       "src/**/*.test.ts",
       "src/__mocks__/**",
-      "vitest.config.ts",
+      "vitest.config.mts",
       "vitest.setup.ts",
     ],
   },
@@ -40,14 +40,6 @@ export default defineConfig([
           ],
         },
       ],
-    },
-  },
-  {
-    // 최소 지원 버전이 1.7.2라 기존 display() 경로를 유지한다.
-    // 1.13+ 전용으로 올릴 때 설정 전체를 SettingDefinition으로 전환한다.
-    files: ["src/settings-tab.ts"],
-    rules: {
-      "obsidianmd/settings-tab/prefer-setting-definitions": "off",
     },
   },
 ]);

@@ -1,4 +1,4 @@
-import { App, FuzzySuggestModal, Modal, Notice, PluginSettingTab, Setting, TFolder, setIcon } from "obsidian";
+import { App, FuzzySuggestModal, Modal, Notice, PluginSettingTab, Setting, TFolder, requireApiVersion, setIcon, setTooltip } from "obsidian";
 import type GeminiAssistantPlugin from "./main";
 import type { CustomSkill, EffortLevel, Locale } from "./types";
 // Second Brain 설정 정규화 (Req 1.4, 1.5): onChange 시점 값 보정에 사용
@@ -198,8 +198,8 @@ export const I18N = {
     mcpStatusDisconnected: (name: string) => `${name} — disconnected`,
     mcpStatusNone: "No servers connected.",
     folderSelectPlaceholder: "Select a folder...",
-    confirmToolExecution: "Confirm note changes",
-    confirmToolExecutionDesc: "Show a confirmation dialog before tools that create, edit, delete, or move notes",
+    confirmToolExecution: "Confirm note changes and MCP tools",
+    confirmToolExecutionDesc: "Confirm tools that create, edit, delete, or move notes, and every external MCP tool",
     secAppearance: "Appearance",
     secChat: "Chat",
     secVault: "Vault",
@@ -393,8 +393,8 @@ export const I18N = {
     mcpStatusDisconnected: (name: string) => `${name} — 연결 끊김`,
     mcpStatusNone: "연결된 서버가 없습니다.",
     folderSelectPlaceholder: "폴더를 선택하세요...",
-    confirmToolExecution: "노트 변경 확인",
-    confirmToolExecutionDesc: "노트를 생성·편집·삭제·이동하는 도구 실행 전 확인 대화상자를 표시합니다",
+    confirmToolExecution: "노트 변경·MCP 도구 실행 확인",
+    confirmToolExecutionDesc: "노트를 생성·편집·삭제·이동하는 도구와 모든 외부 MCP 도구를 실행하기 전에 확인합니다",
     secAppearance: "모양",
     secChat: "대화",
     secVault: "볼트 관리",
@@ -588,8 +588,8 @@ export const I18N = {
     mcpStatusDisconnected: (name: string) => `${name} — 切断`,
     mcpStatusNone: "接続されたサーバーがありません。",
     folderSelectPlaceholder: "フォルダを選択...",
-    confirmToolExecution: "ノート変更の確認",
-    confirmToolExecutionDesc: "ノートを作成・編集・削除・移動するツールの実行前に確認ダイアログを表示します",
+    confirmToolExecution: "ノート変更とMCPツールの確認",
+    confirmToolExecutionDesc: "ノートを作成・編集・削除・移動するツールと、すべての外部MCPツールの実行前に確認します",
     secAppearance: "外観",
     secChat: "チャット",
     secVault: "ボルト管理",
@@ -660,6 +660,19 @@ function forEachChatView(app: App, apply: (view: ChatViewHooks) => void): void {
   }
 }
 
+// 같은 정의를 1.13+ 검색·렌더링과 구버전 화면에서 공유한다.
+type SettingRow = {
+  name: string;
+  desc?: string | DocumentFragment;
+  searchable?: boolean;
+  render: (setting: Setting) => void;
+};
+type SettingSection = {
+  type: "group";
+  heading?: string;
+  items: SettingRow[];
+};
+
 // 설정 탭
 export class GeminiSettingTab extends PluginSettingTab {
   plugin: GeminiAssistantPlugin;
@@ -681,17 +694,57 @@ export class GeminiSettingTab extends PluginSettingTab {
     }
     this.credentialDebounceTimer = window.setTimeout(() => {
       this.credentialDebounceTimer = null;
-      this.display();
+      this.refreshSettings();
     }, 1500);
   }
 
+  /** Obsidian 1.13 이전의 렌더링 진입점. */
   display(): void {
+    this.renderLegacySettings();
+  }
+
+  private refreshSettings(): void {
+    if (requireApiVersion("1.13.0")) this.update();
+    else this.renderLegacySettings();
+  }
+
+  private renderLegacySettings(): void {
     const { containerEl } = this;
     containerEl.empty();
-    // 탭 최초 오픈 시점의 임베딩 시그니처를 1회 기록한다(백엔드 전환에 따른 재렌더에서는 유지).
-    if (this.embeddingSignatureSnapshot === null) {
-      this.embeddingSignatureSnapshot = embeddingSignature(this.plugin.settings);
+    for (const section of this.getSettingDefinitions()) {
+      if (section.heading) new Setting(containerEl).setName(section.heading).setHeading();
+      for (const row of section.items) {
+        const setting = new Setting(containerEl).setName(row.name).setDesc(row.desc ?? "");
+        row.render(setting);
+      }
     }
+  }
+
+  /** 검색 등록 시에도 호출되므로 정의 수집 중에는 DOM·네트워크·저장을 실행하지 않는다. */
+  getSettingDefinitions(): SettingSection[] {
+    let section: SettingSection = { type: "group", items: [] };
+    const sections = [section];
+    const addHeading = (heading: string): void => {
+      section = { type: "group", heading, items: [] };
+      sections.push(section);
+    };
+    const addDefinition = (definition: SettingRow): void => {
+      section.items.push({
+        ...definition,
+        render: (setting) => {
+          if (this.embeddingSignatureSnapshot === null) {
+            this.embeddingSignatureSnapshot = embeddingSignature(this.plugin.settings);
+          }
+          definition.render(setting);
+        },
+      });
+    };
+    const addSetting = (
+      name: string,
+      desc: string | undefined,
+      render: (setting: Setting) => void,
+      searchable = true,
+    ): void => addDefinition({ name, desc, render, searchable });
     const lang = this.plugin.settings.language;
     const t = I18N[lang] || I18N.en;
     // 현재 언어에 키가 없으면 영어 레이블로 폴백한다.
@@ -702,77 +755,68 @@ export class GeminiSettingTab extends PluginSettingTab {
       return typeof en === "string" ? en : "";
     };
 
-    // 최상단 타이틀 헤딩은 두지 않는다. 커뮤니티 심사 기준이 두 가지를 금지한다 —
-    // 설정 탭에서 `createEl("h2")`로 섹션 제목을 만드는 것(대신 `setHeading()`),
-    // 그리고 헤딩 텍스트에 플러그인 이름과 "Settings"를 넣는 것. 옵시디언이 이미 설정
-    // 화면을 플러그인 이름 아래에 렌더하므로 중복이기도 하다.
-    //
-    // 대신 설명 문단 하나만 둔다. 이건 섹션 헤딩이 아니라 본문이라 위 기준과 무관하고,
-    // "설정하기 전까지 아무것도 동작하지 않는다"는 점을 먼저 알리는 자리다.
-    containerEl.createEl("p", { text: tk("pluginDesc"), cls: "ba-about-desc" });
+    addSetting("", tk("pluginDesc"), () => {}, false);
 
     // 언어 선택
-    new Setting(containerEl)
-      .setName(t.language)
-      .setDesc(t.languageDesc)
-      .addDropdown((dropdown) =>
-        dropdown
-          .addOption("en", "English")
-          .addOption("ko", "한국어")
-          .addOption("ja", "日本語")
-          .setValue(this.plugin.settings.language)
-          .onChange(async (value) => {
-            this.plugin.settings.language = value as Locale;
-            await this.plugin.saveSettings();
-            // MCP 연결은 설정을 참조하지 않으므로 언어를 직접 밀어준다.
-            this.plugin.mcpManager?.setLocale(value as Locale);
-            // 열려있는 채팅 뷰 UI 즉시 재빌드
-            forEachChatView(this.app, (view) => void view.rebuildUI?.());
-            this.display();
-          })
-      );
+    addSetting(t.language, t.languageDesc, (setting) => {
+      setting
+        .addDropdown((dropdown) =>
+          dropdown
+            .addOption("en", "English")
+            .addOption("ko", "한국어")
+            .addOption("ja", "日本語")
+            .setValue(this.plugin.settings.language)
+            .onChange(async (value) => {
+              this.plugin.settings.language = value as Locale;
+              await this.plugin.saveSettings();
+              // MCP 연결은 설정을 참조하지 않으므로 언어를 직접 밀어준다.
+              this.plugin.mcpManager?.setLocale(value as Locale);
+              // 열려있는 채팅 뷰 UI 즉시 재빌드
+              forEachChatView(this.app, (view) => void view.rebuildUI?.());
+              this.refreshSettings();
+            })
+        );
+    });
 
     // AI 백엔드 선택 (언어 선택 바로 아래)
-    new Setting(containerEl)
-      .setName(t.aiBackendLabel)
-      .setDesc(t.aiBackendDesc)
-      .addDropdown((dropdown) =>
-        dropdown
-          .addOption("gemini", "Gemini")
-          .addOption("bedrock", "Bedrock")
-          .addOption("openai", "OpenAI")
-          .addOption("ollama", "Ollama")
-          .setValue(this.plugin.settings.aiBackend)
-          .onChange(async (value) => {
-            // 4값 union으로 캐스팅 (Req 1.1)
-            this.plugin.settings.aiBackend = value as "bedrock" | "gemini" | "openai" | "ollama";
-            // 백엔드가 바뀌면 effort 허용 집합도 달라지므로(예: Anthropic 전용 max)
-            // 새 백엔드·모델 기준으로 저장값을 보정한다.
-            this.plugin.settings.effort = clampEffort(
-              this.plugin.settings.aiBackend,
-              activeChatModelId(this.plugin.settings),
-              this.plugin.settings.effort
-            );
-            await this.plugin.saveSettings();
-            this.plugin.recreateAiClient();
-            updateBranding(this.plugin.settings.aiBackend);
-            // 리본/뷰 헤더 아이콘을 새 백엔드 브랜딩으로 즉시 갱신한다.
-            // refreshBranding이 열린 뷰를 rebuildUI(→onOpen→preloadModels)하므로,
-            // 헤더 아이콘 갱신과 새 백엔드 모델 목록 재로드가 한 번에 처리된다.
-            this.plugin.refreshBranding();
-            this.display(); // 설정 탭 UI 재렌더링 (표시 필드 집합 갱신 — Req 12.5)
-          })
-      );
+    addSetting(t.aiBackendLabel, t.aiBackendDesc, (setting) => {
+      setting
+        .addDropdown((dropdown) =>
+          dropdown
+            .addOption("gemini", "Gemini")
+            .addOption("bedrock", "Bedrock")
+            .addOption("openai", "OpenAI")
+            .addOption("ollama", "Ollama")
+            .setValue(this.plugin.settings.aiBackend)
+            .onChange(async (value) => {
+              // 4값 union으로 캐스팅 (Req 1.1)
+              this.plugin.settings.aiBackend = value as "bedrock" | "gemini" | "openai" | "ollama";
+              // 백엔드가 바뀌면 effort 허용 집합도 달라지므로(예: Anthropic 전용 max)
+              // 새 백엔드·모델 기준으로 저장값을 보정한다.
+              this.plugin.settings.effort = clampEffort(
+                this.plugin.settings.aiBackend,
+                activeChatModelId(this.plugin.settings),
+                this.plugin.settings.effort
+              );
+              await this.plugin.saveSettings();
+              this.plugin.recreateAiClient();
+              updateBranding(this.plugin.settings.aiBackend);
+              // 리본/뷰 헤더 아이콘을 새 백엔드 브랜딩으로 즉시 갱신한다.
+              // refreshBranding이 열린 뷰를 rebuildUI(→onOpen→preloadModels)하므로,
+              // 헤더 아이콘 갱신과 새 백엔드 모델 목록 재로드가 한 번에 처리된다.
+              this.plugin.refreshBranding();
+              this.refreshSettings(); // 설정 탭 UI 재렌더링 (표시 필드 집합 갱신 — Req 12.5)
+            })
+        );
+    });
 
     // 조건부 자격증명 필드: 백엔드에 따라 다른 필드 표시
     if (this.plugin.settings.aiBackend === "gemini") {
       // Gemini API 설정
-      new Setting(containerEl).setName(t.awsAuth).setHeading();
+      addHeading(t.awsAuth);
 
-      const apiKeySetting = new Setting(containerEl)
-        .setName(t.apiKey)
-        .setDesc(t.apiKeyDesc)
-        .addText((text) => {
+      addSetting(t.apiKey, t.apiKeyDesc, (setting) => {
+        setting.addText((text) => {
           text
             .setPlaceholder(t.apiKeyPlaceholder)
             .setValue(this.plugin.settings.geminiApiKey)
@@ -785,16 +829,14 @@ export class GeminiSettingTab extends PluginSettingTab {
           text.inputEl.type = "password";
           text.inputEl.addClass("ba-secret-input");
         });
-      // 눈 버튼 추가
-      this.addToggleVisibilityButton(apiKeySetting.controlEl);
+        this.addToggleVisibilityButton(setting.controlEl);
+      });
     } else if (this.plugin.settings.aiBackend === "bedrock") {
       // Bedrock (AWS) 자격증명 설정
-      new Setting(containerEl).setName("AWS Bedrock").setHeading();
+      addHeading("AWS Bedrock");
 
-      const bedrockApiKeySetting = new Setting(containerEl)
-        .setName(t.bedrockApiKeyLabel)
-        .setDesc(t.bedrockApiKeyDesc)
-        .addText((text) => {
+      addSetting(t.bedrockApiKeyLabel, t.bedrockApiKeyDesc, (setting) => {
+        setting.addText((text) => {
           text
             .setPlaceholder(t.bedrockApiKeyPlaceholder)
             .setValue(this.plugin.settings.bedrockApiKey)
@@ -806,31 +848,30 @@ export class GeminiSettingTab extends PluginSettingTab {
           text.inputEl.type = "password";
           text.inputEl.addClass("ba-secret-input");
         });
-      this.addToggleVisibilityButton(bedrockApiKeySetting.controlEl);
+        this.addToggleVisibilityButton(setting.controlEl);
+      });
 
-      new Setting(containerEl)
-        .setName(t.awsRegionLabel)
-        .setDesc(t.awsRegionDesc)
-        .addText((text) =>
-          text
-            .setPlaceholder(t.awsRegionPlaceholder)
-            .setValue(this.plugin.settings.awsRegion)
-            .onChange(async (value) => {
-              this.plugin.settings.awsRegion = value.trim() || "us-east-1";
-              await this.plugin.saveSettings();
-              // 리전 변경 시 모델 목록 재로드 예약
-              this.scheduleModelReload();
-            })
-        );
+      addSetting(t.awsRegionLabel, t.awsRegionDesc, (setting) => {
+        setting
+          .addText((text) =>
+            text
+              .setPlaceholder(t.awsRegionPlaceholder)
+              .setValue(this.plugin.settings.awsRegion)
+              .onChange(async (value) => {
+                this.plugin.settings.awsRegion = value.trim() || "us-east-1";
+                await this.plugin.saveSettings();
+                // 리전 변경 시 모델 목록 재로드 예약
+                this.scheduleModelReload();
+              })
+          );
+      });
     } else if (this.plugin.settings.aiBackend === "openai") {
       // OpenAI 자격증명 설정 (Req 12.1): API 키(마스킹) + 선택적 base URL
-      new Setting(containerEl).setName(tk("openaiAuth")).setHeading();
+      addHeading(tk("openaiAuth"));
 
       // OpenAI API 키 — 기존 password + 눈 버튼 마스킹 패턴 재사용 (Req 3.7)
-      const openaiKeySetting = new Setting(containerEl)
-        .setName(tk("openaiApiKey"))
-        .setDesc(tk("openaiApiKeyDesc"))
-        .addText((text) => {
+      addSetting(tk("openaiApiKey"), tk("openaiApiKeyDesc"), (setting) => {
+        setting.addText((text) => {
           text
             .setPlaceholder(tk("openaiApiKeyPlaceholder"))
             .setValue(this.plugin.settings.openaiApiKey)
@@ -843,231 +884,226 @@ export class GeminiSettingTab extends PluginSettingTab {
           text.inputEl.type = "password";
           text.inputEl.addClass("ba-secret-input");
         });
-      this.addToggleVisibilityButton(openaiKeySetting.controlEl);
+        this.addToggleVisibilityButton(setting.controlEl);
+      });
 
       // 선택적 base URL — onChange에서 형식 검증, 실패 시 Notice + 이전 유효값 유지 (Req 2.10)
-      this.addBaseUrlSetting(
-        containerEl,
+      addDefinition(this.addBaseUrlSetting(
         tk("openaiBaseUrl"),
         tk("openaiBaseUrlDesc"),
         tk("openaiBaseUrlPlaceholder"),
         () => this.plugin.settings.openaiBaseUrl,
         (v) => { this.plugin.settings.openaiBaseUrl = v; },
-        tk("baseUrlInvalid"),
-      );
+        tk("baseUrlInvalid")
+      ));
     } else if (this.plugin.settings.aiBackend === "ollama") {
       // Ollama 서버 설정 (Req 12.2): 서버 base URL (API 키 없음)
-      new Setting(containerEl).setName(tk("ollamaServer")).setHeading();
+      addHeading(tk("ollamaServer"));
 
       // 서버 base URL — onChange에서 형식 검증, 실패 시 Notice + 이전 유효값 유지 (Req 2.10)
-      this.addBaseUrlSetting(
-        containerEl,
+      addDefinition(this.addBaseUrlSetting(
         tk("ollamaBaseUrl"),
         tk("ollamaBaseUrlDesc"),
         tk("ollamaBaseUrlPlaceholder"),
         () => this.plugin.settings.ollamaBaseUrl,
         (v) => { this.plugin.settings.ollamaBaseUrl = v; },
-        tk("baseUrlInvalid"),
-      );
+        tk("baseUrlInvalid")
+      ));
     }
 
     // 조건부 모델 설정: 백엔드별 모델 드롭다운 표시
-    new Setting(containerEl).setName(t.modelSettings).setHeading();
+    addHeading(t.modelSettings);
 
     if (this.plugin.settings.aiBackend === "gemini") {
       // Gemini 채팅 모델 드롭다운
-      new Setting(containerEl)
-        .setName(t.chatModel)
-        .setDesc(t.chatModelDesc)
-        .addDropdown((dropdown) => {
-          // 현재 설정값을 기본 옵션으로 추가
-          const current = this.plugin.settings.chatModel;
-          dropdown.addOption(current, current);
-          dropdown.setValue(current);
-          dropdown.onChange(async (value) => {
-            this.plugin.settings.chatModel = value;
-            // 모델이 바뀌면 effort 허용 집합이 달라지므로 저장값을 보정한다.
-            this.plugin.settings.effort = clampEffort(
-              "gemini",
-              value,
-              this.plugin.settings.effort
-            );
-            await this.plugin.saveSettings();
-            // effort 항목 노출/옵션이 모델에 따라 바뀌므로 탭을 다시 그린다.
-            this.display();
-          });
-          // 비동기로 모델 목록 로드 후 드롭다운 갱신
-          void (async () => {
-            try {
-              const models = await this.plugin.aiClient.listModels();
-              dropdown.selectEl.empty();
-              for (const m of models) {
-                dropdown.addOption(m.modelId, m.modelName || m.modelId);
+      addSetting(t.chatModel, t.chatModelDesc, (setting) => {
+        setting
+          .addDropdown((dropdown) => {
+            // 현재 설정값을 기본 옵션으로 추가
+            const current = this.plugin.settings.chatModel;
+            dropdown.addOption(current, current);
+            dropdown.setValue(current);
+            dropdown.onChange(async (value) => {
+              this.plugin.settings.chatModel = value;
+              // 모델이 바뀌면 effort 허용 집합이 달라지므로 저장값을 보정한다.
+              this.plugin.settings.effort = clampEffort(
+                "gemini",
+                value,
+                this.plugin.settings.effort
+              );
+              await this.plugin.saveSettings();
+              // effort 항목 노출/옵션이 모델에 따라 바뀌므로 탭을 다시 그린다.
+              this.refreshSettings();
+            });
+            // 비동기로 모델 목록 로드 후 드롭다운 갱신
+            void (async () => {
+              try {
+                const models = await this.plugin.aiClient.listModels();
+                dropdown.selectEl.empty();
+                for (const m of models) {
+                  dropdown.addOption(m.modelId, m.modelName || m.modelId);
+                }
+                dropdown.setValue(this.plugin.settings.chatModel);
+              } catch {
+                // 모델 로드 실패 시 현재값 유지
               }
-              dropdown.setValue(this.plugin.settings.chatModel);
-            } catch {
-              // 모델 로드 실패 시 현재값 유지
-            }
-          })();
-        });
+            })();
+          });
+      });
 
       // Gemini 임베딩 모델
-      new Setting(containerEl)
-        .setName(t.embeddingModel)
-        .setDesc(t.embeddingModelDesc)
-        .addText((text) =>
-          text
-            .setPlaceholder("text-embedding-004")
-            .setValue(this.plugin.settings.embeddingModel)
-            .onChange(async (value) => {
-              this.plugin.settings.embeddingModel = value;
-              await this.plugin.saveSettings();
-            })
-        );
+      addSetting(t.embeddingModel, t.embeddingModelDesc, (setting) => {
+        setting
+          .addText((text) =>
+            text
+              .setPlaceholder("text-embedding-004")
+              .setValue(this.plugin.settings.embeddingModel)
+              .onChange(async (value) => {
+                this.plugin.settings.embeddingModel = value;
+                await this.plugin.saveSettings();
+              })
+          );
+      });
     } else if (this.plugin.settings.aiBackend === "bedrock") {
       // Bedrock 채팅 모델 드롭다운
-      new Setting(containerEl)
-        .setName(t.bedrockChatModelLabel)
-        .setDesc(t.bedrockChatModelDesc)
-        .addDropdown((dropdown) => {
-          const current = this.plugin.settings.bedrockChatModel;
-          if (current) {
-            dropdown.addOption(current, current);
-          }
-          dropdown.setValue(current);
-          dropdown.onChange(async (value) => {
-            this.plugin.settings.bedrockChatModel = value;
-            // 모델이 바뀌면 effort 허용 집합이 달라지므로 저장값을 보정한다.
-            this.plugin.settings.effort = clampEffort(
-              "bedrock",
-              value,
-              this.plugin.settings.effort
-            );
-            await this.plugin.saveSettings();
-            // effort 항목 노출/옵션이 모델에 따라 바뀌므로 탭을 다시 그린다.
-            this.display();
-          });
-          // 비동기로 모델 목록 로드 후 드롭다운 갱신
-          void (async () => {
-            try {
-              const models = await this.plugin.aiClient.listModels();
-              // 빈 목록이면 기존 옵션을 지우지 않는다. 목록 조회는 컨트롤 플레인
-              // 권한을 요구하므로(API 키 인증 등에서 실패 가능) 지워버리면 이미
-              // 설정된 모델까지 선택 불가가 된다.
-              if (models.length === 0) return;
-              dropdown.selectEl.empty();
-              for (const m of models) {
-                dropdown.addOption(m.modelId, m.modelName || m.modelId);
-              }
-              // 저장된 모델이 목록에 없으면 옵션으로 추가해 선택을 유지한다.
-              const saved = this.plugin.settings.bedrockChatModel;
-              if (saved && !models.some((m) => m.modelId === saved)) {
-                dropdown.addOption(saved, saved);
-              }
-              dropdown.setValue(saved);
-            } catch {
-              // 모델 로드 실패 시 현재값 유지
+      addSetting(t.bedrockChatModelLabel, t.bedrockChatModelDesc, (setting) => {
+        setting
+          .addDropdown((dropdown) => {
+            const current = this.plugin.settings.bedrockChatModel;
+            if (current) {
+              dropdown.addOption(current, current);
             }
-          })();
-        });
+            dropdown.setValue(current);
+            dropdown.onChange(async (value) => {
+              this.plugin.settings.bedrockChatModel = value;
+              // 모델이 바뀌면 effort 허용 집합이 달라지므로 저장값을 보정한다.
+              this.plugin.settings.effort = clampEffort(
+                "bedrock",
+                value,
+                this.plugin.settings.effort
+              );
+              await this.plugin.saveSettings();
+              // effort 항목 노출/옵션이 모델에 따라 바뀌므로 탭을 다시 그린다.
+              this.refreshSettings();
+            });
+            // 비동기로 모델 목록 로드 후 드롭다운 갱신
+            void (async () => {
+              try {
+                const models = await this.plugin.aiClient.listModels();
+                // 빈 목록이면 기존 옵션을 지우지 않는다. 목록 조회는 컨트롤 플레인
+                // 권한을 요구하므로(API 키 인증 등에서 실패 가능) 지워버리면 이미
+                // 설정된 모델까지 선택 불가가 된다.
+                if (models.length === 0) return;
+                dropdown.selectEl.empty();
+                for (const m of models) {
+                  dropdown.addOption(m.modelId, m.modelName || m.modelId);
+                }
+                // 저장된 모델이 목록에 없으면 옵션으로 추가해 선택을 유지한다.
+                const saved = this.plugin.settings.bedrockChatModel;
+                if (saved && !models.some((m) => m.modelId === saved)) {
+                  dropdown.addOption(saved, saved);
+                }
+                dropdown.setValue(saved);
+              } catch {
+                // 모델 로드 실패 시 현재값 유지
+              }
+            })();
+          });
+      });
 
       // Bedrock 임베딩 모델 드롭다운
-      new Setting(containerEl)
-        .setName(t.bedrockEmbeddingModelLabel)
-        .setDesc(t.bedrockEmbeddingModelDesc)
-        .addDropdown((dropdown) => {
-          const current = this.plugin.settings.bedrockEmbeddingModel;
-          if (current) {
-            dropdown.addOption(current, current);
-          }
-          dropdown.setValue(current);
-          dropdown.onChange(async (value) => {
-            this.plugin.settings.bedrockEmbeddingModel = value;
-            await this.plugin.saveSettings();
-          });
-          // 비동기로 임베딩 모델 목록 로드 후 드롭다운 갱신 (kind="embedding")
-          void (async () => {
-            try {
-              const models = await this.plugin.aiClient.listModels("embedding");
-              // 빈 목록/오류 시 현재값 유지 (Req 7.9)
-              if (!models || models.length === 0) return;
-              const cur = this.plugin.settings.bedrockEmbeddingModel;
-              dropdown.selectEl.empty();
-              for (const m of models) {
-                dropdown.addOption(m.modelId, m.modelName || m.modelId);
-              }
-              // 현재 설정 ID가 목록에 없으면 현재값을 옵션으로 추가하여 선택 유지 (Req 7.9.1)
-              if (cur && !models.some((m) => m.modelId === cur)) {
-                dropdown.addOption(cur, cur);
-              }
-              dropdown.setValue(cur);
-            } catch {
-              // 모델 로드 실패 시 현재값 유지
+      addSetting(t.bedrockEmbeddingModelLabel, t.bedrockEmbeddingModelDesc, (setting) => {
+        setting
+          .addDropdown((dropdown) => {
+            const current = this.plugin.settings.bedrockEmbeddingModel;
+            if (current) {
+              dropdown.addOption(current, current);
             }
-          })();
-        });
+            dropdown.setValue(current);
+            dropdown.onChange(async (value) => {
+              this.plugin.settings.bedrockEmbeddingModel = value;
+              await this.plugin.saveSettings();
+            });
+            // 비동기로 임베딩 모델 목록 로드 후 드롭다운 갱신 (kind="embedding")
+            void (async () => {
+              try {
+                const models = await this.plugin.aiClient.listModels("embedding");
+                // 빈 목록/오류 시 현재값 유지 (Req 7.9)
+                if (!models || models.length === 0) return;
+                const cur = this.plugin.settings.bedrockEmbeddingModel;
+                dropdown.selectEl.empty();
+                for (const m of models) {
+                  dropdown.addOption(m.modelId, m.modelName || m.modelId);
+                }
+                // 현재 설정 ID가 목록에 없으면 현재값을 옵션으로 추가하여 선택 유지 (Req 7.9.1)
+                if (cur && !models.some((m) => m.modelId === cur)) {
+                  dropdown.addOption(cur, cur);
+                }
+                dropdown.setValue(cur);
+              } catch {
+                // 모델 로드 실패 시 현재값 유지
+              }
+            })();
+          });
+      });
     } else if (this.plugin.settings.aiBackend === "openai") {
       // OpenAI 채팅/임베딩 모델 드롭다운 (Req 12.1, 12.3)
-      this.addProviderModelDropdown(
-        containerEl,
+      addDefinition(this.addProviderModelDropdown(
         tk("openaiChatModel"),
         tk("openaiChatModelDesc"),
         () => this.plugin.settings.openaiChatModel,
         (v) => { this.plugin.settings.openaiChatModel = v; },
-        "chat",
-      );
-      this.addProviderModelDropdown(
-        containerEl,
+        "chat"
+      ));
+      addDefinition(this.addProviderModelDropdown(
         tk("openaiEmbeddingModel"),
         tk("openaiEmbeddingModelDesc"),
         () => this.plugin.settings.openaiEmbeddingModel,
         (v) => { this.plugin.settings.openaiEmbeddingModel = v; },
-        "embedding",
-      );
+        "embedding"
+      ));
     } else if (this.plugin.settings.aiBackend === "ollama") {
       // Ollama 채팅/임베딩 모델 드롭다운 (Req 12.2, 12.3)
-      this.addProviderModelDropdown(
-        containerEl,
+      addDefinition(this.addProviderModelDropdown(
         tk("ollamaChatModel"),
         tk("ollamaChatModelDesc"),
         () => this.plugin.settings.ollamaChatModel,
         (v) => { this.plugin.settings.ollamaChatModel = v; },
-        "chat",
-      );
-      this.addProviderModelDropdown(
-        containerEl,
+        "chat"
+      ));
+      addDefinition(this.addProviderModelDropdown(
         tk("ollamaEmbeddingModel"),
         tk("ollamaEmbeddingModelDesc"),
         () => this.plugin.settings.ollamaEmbeddingModel,
         (v) => { this.plugin.settings.ollamaEmbeddingModel = v; },
-        "embedding",
-      );
+        "embedding"
+      ));
     }
 
     // 생성 설정
-    new Setting(containerEl).setName(t.genSettings).setHeading();
+    addHeading(t.genSettings);
 
-    new Setting(containerEl)
-      .setName(t.maxTokens)
-      .setDesc(t.maxTokensDesc)
-      .addText((text) =>
-        text
-          .setPlaceholder("4096")
-          .setValue(String(this.plugin.settings.maxTokens))
-          .onChange(async (value) => {
-            const num = parseInt(value, 10);
-            if (Number.isNaN(num)) return;
-            // 허용 범위([1, 200000])로 보정한다. 비정상적으로 큰 값이 API에
-            // 그대로 전달돼 비용/오류가 발생하는 것을 방지한다.
-            const clamped = clampMaxTokens(num);
-            this.plugin.settings.maxTokens = clamped;
-            await this.plugin.saveSettings();
-            // 입력값이 보정됐으면 표시값도 보정 결과로 동기화한다.
-            if (clamped !== num) {
-              text.setValue(String(clamped));
-            }
-          })
-      );
+    addSetting(t.maxTokens, t.maxTokensDesc, (setting) => {
+      setting
+        .addText((text) =>
+          text
+            .setPlaceholder("4096")
+            .setValue(String(this.plugin.settings.maxTokens))
+            .onChange(async (value) => {
+              const num = parseInt(value, 10);
+              if (Number.isNaN(num)) return;
+              // 허용 범위([1, 200000])로 보정한다. 비정상적으로 큰 값이 API에
+              // 그대로 전달돼 비용/오류가 발생하는 것을 방지한다.
+              const clamped = clampMaxTokens(num);
+              this.plugin.settings.maxTokens = clamped;
+              await this.plugin.saveSettings();
+              // 입력값이 보정됐으면 표시값도 보정 결과로 동기화한다.
+              if (clamped !== num) {
+                text.setValue(String(clamped));
+              }
+            })
+        );
+    });
 
     // 추론 강도(effort). temperature를 대체하는 파라미터로, 현재 백엔드·모델이
     // 허용하는 값만 노출한다. 지원 모델이 없으면(예: Ollama) 항목 자체를 숨긴다.
@@ -1078,14 +1114,12 @@ export class GeminiSettingTab extends PluginSettingTab {
       // 저장값이 허용 집합을 벗어나면 먼저 보정해 확정한다. 표시값만 보정하면
       // 사용자가 드롭다운을 건드리지 않는 한 허용 밖 값이 요청에 실린다.
       const effort = clampEffort(effortProvider, effortModelId, this.plugin.settings.effort);
-      if (effort !== this.plugin.settings.effort) {
-        this.plugin.settings.effort = effort;
-        void this.plugin.saveSettings();
-      }
-      new Setting(containerEl)
-        .setName(t.effortLabel)
-        .setDesc(t.effortDesc)
-        .addDropdown((dropdown) => {
+      addSetting(t.effortLabel, t.effortDesc, (setting) => {
+        if (effort !== this.plugin.settings.effort) {
+          this.plugin.settings.effort = effort;
+          void this.plugin.saveSettings();
+        }
+        setting.addDropdown((dropdown) => {
           for (const level of allowedEfforts) dropdown.addOption(level, level);
           dropdown.setValue(effort);
           dropdown.onChange(async (value) => {
@@ -1093,638 +1127,647 @@ export class GeminiSettingTab extends PluginSettingTab {
             await this.plugin.saveSettings();
           });
         });
+      });
     }
 
-    new Setting(containerEl)
-      .setName(t.systemPrompt)
-      .setDesc(t.systemPromptDesc)
-      .addButton((btn) =>
-        btn.setButtonText(t.systemPromptEdit).onClick(() => {
-          new SystemPromptModal(this.app, this.plugin, t).open();
-        })
-      );
+    addSetting(t.systemPrompt, t.systemPromptDesc, (setting) => {
+      setting
+        .addButton((btn) =>
+          btn.setButtonText(t.systemPromptEdit).onClick(() => {
+            new SystemPromptModal(this.app, this.plugin, t).open();
+          })
+        );
+    });
 
     // 사용자 경험 설정
     // === 모양 (Appearance) ===
-    new Setting(containerEl).setName(t.secAppearance).setHeading();
+    addHeading(t.secAppearance);
 
-    new Setting(containerEl)
-      .setName(t.chatFontSize)
-      .setDesc(t.chatFontSizeDesc)
-      .addText((text) => {
-        text.inputEl.type = "number";
-        text.inputEl.min = "10";
-        text.inputEl.max = "24";
-        text.setValue(String(this.plugin.settings.chatFontSize));
-        text.onChange(async (value) => {
-          const parsed = parseInt(value, 10);
-          if (!Number.isFinite(parsed)) return; // 빈/잘못된 입력 무시
-          const clamped = Math.max(10, Math.min(24, parsed));
-          this.plugin.settings.chatFontSize = clamped;
-          await this.plugin.saveSettings();
-          // 열려있는 채팅 뷰에 즉시 반영
-          forEachChatView(this.app, (view) => view.applyFontSize?.());
-          // 범위를 벗어난 입력은 보정된 값으로 표시 갱신
-          if (clamped !== parsed) text.setValue(String(clamped));
-        });
-      });
-
-    new Setting(containerEl)
-      .setName(t.greeting)
-      .setDesc(t.greetingDesc)
-      .addText((text) =>
-        text
-          .setValue(this.plugin.settings.welcomeGreeting)
-          .onChange(async (value) => {
-            this.plugin.settings.welcomeGreeting = value;
+    addSetting(t.chatFontSize, t.chatFontSizeDesc, (setting) => {
+      setting
+        .addText((text) => {
+          text.inputEl.type = "number";
+          text.inputEl.min = "10";
+          text.inputEl.max = "24";
+          text.setValue(String(this.plugin.settings.chatFontSize));
+          text.onChange(async (value) => {
+            const parsed = parseInt(value, 10);
+            if (!Number.isFinite(parsed)) return; // 빈/잘못된 입력 무시
+            const clamped = Math.max(10, Math.min(24, parsed));
+            this.plugin.settings.chatFontSize = clamped;
             await this.plugin.saveSettings();
-          })
-      );
+            // 열려있는 채팅 뷰에 즉시 반영
+            forEachChatView(this.app, (view) => view.applyFontSize?.());
+            // 범위를 벗어난 입력은 보정된 값으로 표시 갱신
+            if (clamped !== parsed) text.setValue(String(clamped));
+          });
+        });
+    });
+
+    addSetting(t.greeting, t.greetingDesc, (setting) => {
+      setting
+        .addText((text) =>
+          text
+            .setValue(this.plugin.settings.welcomeGreeting)
+            .onChange(async (value) => {
+              this.plugin.settings.welcomeGreeting = value;
+              await this.plugin.saveSettings();
+            })
+        );
+    });
 
     // === 대화 (Chat) ===
-    new Setting(containerEl).setName(t.secChat).setHeading();
+    addHeading(t.secChat);
 
-    new Setting(containerEl)
-      .setName(t.autoAttach)
-      .setDesc(t.autoAttachDesc)
-      .addToggle((toggle) =>
-        toggle
-          .setValue(this.plugin.settings.autoAttachActiveNote)
-          .onChange(async (value) => {
-            this.plugin.settings.autoAttachActiveNote = value;
-            await this.plugin.saveSettings();
-          })
-      );
+    addSetting(t.autoAttach, t.autoAttachDesc, (setting) => {
+      setting
+        .addToggle((toggle) =>
+          toggle
+            .setValue(this.plugin.settings.autoAttachActiveNote)
+            .onChange(async (value) => {
+              this.plugin.settings.autoAttachActiveNote = value;
+              await this.plugin.saveSettings();
+            })
+        );
+    });
 
-    new Setting(containerEl)
-      .setName(t.persistChat)
-      .setDesc(t.persistChatDesc)
-      .addToggle((toggle) =>
-        toggle
-          .setValue(this.plugin.settings.persistChat)
-          .onChange(async (value) => {
-            this.plugin.settings.persistChat = value;
-            await this.plugin.saveSettings();
-          })
-      );
+    addSetting(t.persistChat, t.persistChatDesc, (setting) => {
+      setting
+        .addToggle((toggle) =>
+          toggle
+            .setValue(this.plugin.settings.persistChat)
+            .onChange(async (value) => {
+              this.plugin.settings.persistChat = value;
+              await this.plugin.saveSettings();
+            })
+        );
+    });
 
-    new Setting(containerEl)
-      .setName(t.confirmToolExecution)
-      .setDesc(t.confirmToolExecutionDesc)
-      .addToggle((toggle) =>
-        toggle
-          .setValue(this.plugin.settings.confirmToolExecution)
-          .onChange(async (value) => {
-            this.plugin.settings.confirmToolExecution = value;
-            await this.plugin.saveSettings();
-          })
-      );
+    addSetting(t.confirmToolExecution, t.confirmToolExecutionDesc, (setting) => {
+      setting
+        .addToggle((toggle) =>
+          toggle
+            .setValue(this.plugin.settings.confirmToolExecution)
+            .onChange(async (value) => {
+              this.plugin.settings.confirmToolExecution = value;
+              await this.plugin.saveSettings();
+            })
+        );
+    });
 
-    new Setting(containerEl)
-      .setName(t.clearHistory)
-      .setDesc(t.clearHistoryDesc)
-      .addButton((btn) =>
-        btn
-          .setButtonText(t.clearHistoryBtn)
-          .setWarning()
-          .onClick(async () => {
-            await this.plugin.clearAllSessions();
-            // 열려있는 채팅 뷰도 초기화
-            forEachChatView(this.app, (view) => void view.clearChat?.());
-            new Notice(t.clearHistoryConfirm);
-          })
-      );
+    addSetting(t.clearHistory, t.clearHistoryDesc, (setting) => {
+      setting
+        .addButton((btn) => {
+          if (requireApiVersion("1.13.0")) btn.setDestructive();
+          else btn.buttonEl.addClass("mod-warning");
+          btn
+            .setButtonText(t.clearHistoryBtn)
+            .onClick(async () => {
+              await this.plugin.clearAllSessions();
+              // 열려있는 채팅 뷰도 초기화
+              forEachChatView(this.app, (view) => void view.clearChat?.());
+              new Notice(t.clearHistoryConfirm);
+            });
+        });
+    });
 
     // === 볼트 관리 (Vault) ===
-    new Setting(containerEl).setName(t.secVault).setHeading();
+    addHeading(t.secVault);
 
-    new Setting(containerEl)
-      .setName(t.templateFolder)
-      .setDesc(t.templateFolderDesc)
-      .addText((text) =>
-        text
-          .setPlaceholder("Templates")
-          .setValue(this.plugin.settings.templateFolder)
-          .onChange(async (value) => {
-            this.plugin.settings.templateFolder = value.trim() || "Templates";
-            await this.plugin.saveSettings();
+    addSetting(t.templateFolder, t.templateFolderDesc, (setting) => {
+      setting
+        .addText((text) =>
+          text
+            .setPlaceholder("Templates")
+            .setValue(this.plugin.settings.templateFolder)
+            .onChange(async (value) => {
+              this.plugin.settings.templateFolder = value.trim() || "Templates";
+              await this.plugin.saveSettings();
+            })
+        )
+        .addButton((btn) =>
+          btn.setIcon("folder").setTooltip("Browse").onClick(() => {
+            new FolderSuggestModal(this.app, voidAsync(async (folder) => {
+              this.plugin.settings.templateFolder = folder;
+              await this.plugin.saveSettings();
+              this.refreshSettings();
+            }), t.folderSelectPlaceholder).open();
           })
-      )
-      .addButton((btn) =>
-        btn.setIcon("folder").setTooltip("Browse").onClick(() => {
-          new FolderSuggestModal(this.app, voidAsync(async (folder) => {
-            this.plugin.settings.templateFolder = folder;
-            await this.plugin.saveSettings();
-            this.display();
-          }), t.folderSelectPlaceholder).open();
-        })
-      );
+        );
+    });
 
     // P.A.R.A 환경 설정
-    new Setting(containerEl)
-      .setName(t.paraSetup)
-      .setDesc(t.paraSetupDesc)
-      .addButton((btn) =>
-        btn
-          .setButtonText(t.paraSetupBtn)
-          .onClick(() => {
-            new ParaModal(this.app, this.plugin, {
-              paraModalTitle: t.paraModalTitle,
-              paraModalRunning: t.paraModalRunning,
-              paraModalDone: t.paraModalDone,
-              paraModalCreated: t.paraModalCreated,
-              paraModalMoved: t.paraModalMoved,
-              paraModalSkipped: t.paraModalSkipped,
-              paraModalErrors: t.paraModalErrors,
-              paraModalNoFiles: t.paraModalNoFiles,
-              paraModalClose: t.paraModalClose,
-            }).open();
-          })
-      );
+    addSetting(t.paraSetup, t.paraSetupDesc, (setting) => {
+      setting
+        .addButton((btn) =>
+          btn
+            .setButtonText(t.paraSetupBtn)
+            .onClick(() => {
+              new ParaModal(this.app, this.plugin, {
+                paraModalTitle: t.paraModalTitle,
+                paraModalRunning: t.paraModalRunning,
+                paraModalDone: t.paraModalDone,
+                paraModalCreated: t.paraModalCreated,
+                paraModalMoved: t.paraModalMoved,
+                paraModalSkipped: t.paraModalSkipped,
+                paraModalErrors: t.paraModalErrors,
+                paraModalNoFiles: t.paraModalNoFiles,
+                paraModalClose: t.paraModalClose,
+              }).open();
+            })
+        );
+    });
 
     // === Graph RAG 검색 설정 (Req 9) ===
-    new Setting(containerEl).setName(t.graphRagSearch).setHeading();
+    addHeading(t.graphRagSearch);
 
     // 그래프 순회 깊이 (0~3 정수). 슬라이더 값은 항상 정수지만 normalizeTraversalDepth로 한 번 더 보정한다 (Req 9.2, 9.4, 9.5)
-    new Setting(containerEl)
-      .setName(t.graphTraversalDepth)
-      .setDesc(t.graphTraversalDepthDesc)
-      .addSlider((slider) =>
-        slider
-          .setLimits(0, 3, 1)
-          .setValue(this.plugin.settings.graphTraversalDepth)
-          .setDynamicTooltip()
-          .onChange(async (value) => {
-            // 유효 범위(0~3 정수)로 보정 후 저장 (Req 9.4, 9.5)
-            const depth = normalizeTraversalDepth(value);
-            this.plugin.settings.graphTraversalDepth = depth;
-            await this.plugin.saveSettings();
-            // 인덱서에 즉시 반영
-            this.plugin.indexer.setSearchOptions({ depth });
-          })
-      );
+    addSetting(t.graphTraversalDepth, t.graphTraversalDepthDesc, (setting) => {
+      setting
+        .addSlider((slider) => {
+          setTooltip(slider.sliderEl, String(this.plugin.settings.graphTraversalDepth));
+          slider
+            .setLimits(0, 3, 1)
+            .setValue(this.plugin.settings.graphTraversalDepth)
+            .onChange(async (value) => {
+              // 유효 범위(0~3 정수)로 보정 후 저장 (Req 9.4, 9.5)
+              const depth = normalizeTraversalDepth(value);
+              setTooltip(slider.sliderEl, String(depth));
+              this.plugin.settings.graphTraversalDepth = depth;
+              await this.plugin.saveSettings();
+              // 인덱서에 즉시 반영
+              this.plugin.indexer.setSearchOptions({ depth });
+            });
+        });
+    });
 
     // 청크 최대 크기 (최소 1). 입력 변경 시 normalizeChunkConfig로 maxSize>=1, overlap<maxSize 보정 (Req 9.6, 9.7)
-    new Setting(containerEl)
-      .setName(t.chunkMaxSize)
-      .setDesc(t.chunkMaxSizeDesc)
-      .addText((text) =>
-        text
-          .setPlaceholder("2000")
-          .setValue(String(this.plugin.settings.chunkMaxSize))
-          .onChange(async (value) => {
-            const num = parseInt(value, 10);
-            if (isNaN(num)) {
-              return; // 숫자가 아니면 무시 (입력 도중 상태)
-            }
-            // maxSize<1→1, overlap>=maxSize→maxSize-1 보정 (Req 9.6, 9.7)
-            const normalized = normalizeChunkConfig(num, this.plugin.settings.chunkOverlap);
-            this.plugin.settings.chunkMaxSize = normalized.maxSize;
-            this.plugin.settings.chunkOverlap = normalized.overlap;
-            await this.plugin.saveSettings();
-            // 인덱서에 즉시 반영
-            this.plugin.indexer.setSearchOptions({
-              chunkMaxSize: normalized.maxSize,
-              chunkOverlap: normalized.overlap,
-            });
-          })
-      );
+    addSetting(t.chunkMaxSize, t.chunkMaxSizeDesc, (setting) => {
+      setting
+        .addText((text) =>
+          text
+            .setPlaceholder("2000")
+            .setValue(String(this.plugin.settings.chunkMaxSize))
+            .onChange(async (value) => {
+              const num = parseInt(value, 10);
+              if (isNaN(num)) {
+                return; // 숫자가 아니면 무시 (입력 도중 상태)
+              }
+              // maxSize<1→1, overlap>=maxSize→maxSize-1 보정 (Req 9.6, 9.7)
+              const normalized = normalizeChunkConfig(num, this.plugin.settings.chunkOverlap);
+              this.plugin.settings.chunkMaxSize = normalized.maxSize;
+              this.plugin.settings.chunkOverlap = normalized.overlap;
+              await this.plugin.saveSettings();
+              // 인덱서에 즉시 반영
+              this.plugin.indexer.setSearchOptions({
+                chunkMaxSize: normalized.maxSize,
+                chunkOverlap: normalized.overlap,
+              });
+            })
+        );
+    });
 
     // 청크 겹침 크기 (청크 최대 크기보다 작아야 함). 입력 변경 시 normalizeChunkConfig로 보정 (Req 9.6)
-    new Setting(containerEl)
-      .setName(t.chunkOverlap)
-      .setDesc(t.chunkOverlapDesc)
-      .addText((text) =>
-        text
-          .setPlaceholder("200")
-          .setValue(String(this.plugin.settings.chunkOverlap))
-          .onChange(async (value) => {
-            const num = parseInt(value, 10);
-            if (isNaN(num)) {
-              return; // 숫자가 아니면 무시 (입력 도중 상태)
-            }
-            // overlap>=maxSize→maxSize-1 보정 (Req 9.6)
-            const normalized = normalizeChunkConfig(this.plugin.settings.chunkMaxSize, num);
-            this.plugin.settings.chunkMaxSize = normalized.maxSize;
-            this.plugin.settings.chunkOverlap = normalized.overlap;
-            await this.plugin.saveSettings();
-            // 인덱서에 즉시 반영
-            this.plugin.indexer.setSearchOptions({
-              chunkMaxSize: normalized.maxSize,
-              chunkOverlap: normalized.overlap,
-            });
-          })
-      );
+    addSetting(t.chunkOverlap, t.chunkOverlapDesc, (setting) => {
+      setting
+        .addText((text) =>
+          text
+            .setPlaceholder("200")
+            .setValue(String(this.plugin.settings.chunkOverlap))
+            .onChange(async (value) => {
+              const num = parseInt(value, 10);
+              if (isNaN(num)) {
+                return; // 숫자가 아니면 무시 (입력 도중 상태)
+              }
+              // overlap>=maxSize→maxSize-1 보정 (Req 9.6)
+              const normalized = normalizeChunkConfig(this.plugin.settings.chunkMaxSize, num);
+              this.plugin.settings.chunkMaxSize = normalized.maxSize;
+              this.plugin.settings.chunkOverlap = normalized.overlap;
+              await this.plugin.saveSettings();
+              // 인덱서에 즉시 반영
+              this.plugin.indexer.setSearchOptions({
+                chunkMaxSize: normalized.maxSize,
+                chunkOverlap: normalized.overlap,
+              });
+            })
+        );
+    });
 
     // === Second Brain Layer 설정 (Req 12.1, 12.2) ===
     // 옵트인 능동 지식 레이어. enabled가 false면 어떤 자동 변경도 일어나지 않는다.
-    new Setting(containerEl).setName(t.secondBrain).setHeading();
+    addHeading(t.secondBrain);
 
     // 기능 활성화 토글 (Req 1.1, 12.1)
-    new Setting(containerEl)
-      .setName(t.secondBrainEnabled)
-      .setDesc(t.secondBrainEnabledDesc)
-      .addToggle((toggle) =>
-        toggle
-          .setValue(this.plugin.settings.secondBrain.enabled)
-          .onChange(async (value) => {
-            // 변경 값을 합쳐 정규화 후 동일 참조에 반영 (Req 1.4, 1.5, 12.2)
-            const normalized = normalizeSecondBrainSettings({
-              ...this.plugin.settings.secondBrain,
-              enabled: value,
-            });
-            // Object.assign으로 기존 객체를 제자리 갱신해 런타임 참조(컨텍스트)에 즉시 반영한다
-            Object.assign(this.plugin.settings.secondBrain, normalized);
-            await this.plugin.saveSettings();
-          })
-      );
+    addSetting(t.secondBrainEnabled, t.secondBrainEnabledDesc, (setting) => {
+      setting
+        .addToggle((toggle) =>
+          toggle
+            .setValue(this.plugin.settings.secondBrain.enabled)
+            .onChange(async (value) => {
+              // 변경 값을 합쳐 정규화 후 동일 참조에 반영 (Req 1.4, 1.5, 12.2)
+              const normalized = normalizeSecondBrainSettings({
+                ...this.plugin.settings.secondBrain,
+                enabled: value,
+              });
+              // Object.assign으로 기존 객체를 제자리 갱신해 런타임 참조(컨텍스트)에 즉시 반영한다
+              Object.assign(this.plugin.settings.secondBrain, normalized);
+              await this.plugin.saveSettings();
+            })
+        );
+    });
 
     // Wiki_Folder 경로 (Req 1.2, 1.4, 12.1)
-    new Setting(containerEl)
-      .setName(t.secondBrainWikiFolder)
-      .setDesc(t.secondBrainWikiFolderDesc)
-      .addText((text) =>
-        text
-          .setPlaceholder("Second Brain")
-          .setValue(this.plugin.settings.secondBrain.wikiFolder)
-          .onChange(async (value) => {
-            // 공백/빈 문자열은 normalize가 기본값으로 보정한다 (Req 1.4)
-            const normalized = normalizeSecondBrainSettings({
-              ...this.plugin.settings.secondBrain,
-              wikiFolder: value,
-            });
-            Object.assign(this.plugin.settings.secondBrain, normalized);
-            await this.plugin.saveSettings();
-            // 보정 결과가 입력과 다르면(공백/빈 입력) 표시값을 갱신
-            if (normalized.wikiFolder !== value) text.setValue(normalized.wikiFolder);
+    addSetting(t.secondBrainWikiFolder, t.secondBrainWikiFolderDesc, (setting) => {
+      setting
+        .addText((text) =>
+          text
+            .setPlaceholder("Second Brain")
+            .setValue(this.plugin.settings.secondBrain.wikiFolder)
+            .onChange(async (value) => {
+              // 공백/빈 문자열은 normalize가 기본값으로 보정한다 (Req 1.4)
+              const normalized = normalizeSecondBrainSettings({
+                ...this.plugin.settings.secondBrain,
+                wikiFolder: value,
+              });
+              Object.assign(this.plugin.settings.secondBrain, normalized);
+              await this.plugin.saveSettings();
+              // 보정 결과가 입력과 다르면(공백/빈 입력) 표시값을 갱신
+              if (normalized.wikiFolder !== value) text.setValue(normalized.wikiFolder);
+            })
+        )
+        .addButton((btn) =>
+          btn.setIcon("folder").setTooltip("Browse").onClick(() => {
+            new FolderSuggestModal(this.app, voidAsync(async (folder) => {
+              const normalized = normalizeSecondBrainSettings({
+                ...this.plugin.settings.secondBrain,
+                wikiFolder: folder,
+              });
+              Object.assign(this.plugin.settings.secondBrain, normalized);
+              await this.plugin.saveSettings();
+              this.refreshSettings();
+            }), t.folderSelectPlaceholder).open();
           })
-      )
-      .addButton((btn) =>
-        btn.setIcon("folder").setTooltip("Browse").onClick(() => {
-          new FolderSuggestModal(this.app, voidAsync(async (folder) => {
-            const normalized = normalizeSecondBrainSettings({
-              ...this.plugin.settings.secondBrain,
-              wikiFolder: folder,
-            });
-            Object.assign(this.plugin.settings.secondBrain, normalized);
-            await this.plugin.saveSettings();
-            this.display();
-          }), t.folderSelectPlaceholder).open();
-        })
-      );
+        );
+    });
 
     // 스케줄러 활성화 토글 (Req 1.2, 12.1)
-    new Setting(containerEl)
-      .setName(t.secondBrainScheduler)
-      .setDesc(t.secondBrainSchedulerDesc)
-      .addToggle((toggle) =>
-        toggle
-          .setValue(this.plugin.settings.secondBrain.schedulerEnabled)
-          .onChange(async (value) => {
-            const normalized = normalizeSecondBrainSettings({
-              ...this.plugin.settings.secondBrain,
-              schedulerEnabled: value,
-            });
-            Object.assign(this.plugin.settings.secondBrain, normalized);
-            await this.plugin.saveSettings();
-          })
-      );
+    addSetting(t.secondBrainScheduler, t.secondBrainSchedulerDesc, (setting) => {
+      setting
+        .addToggle((toggle) =>
+          toggle
+            .setValue(this.plugin.settings.secondBrain.schedulerEnabled)
+            .onChange(async (value) => {
+              const normalized = normalizeSecondBrainSettings({
+                ...this.plugin.settings.secondBrain,
+                schedulerEnabled: value,
+              });
+              Object.assign(this.plugin.settings.secondBrain, normalized);
+              await this.plugin.saveSettings();
+            })
+        );
+    });
 
     // 스케줄러 주기 (시간 단위, 최소 1 정수). normalize가 <1/비정수를 max(1, round(n))로 보정 (Req 1.5)
-    new Setting(containerEl)
-      .setName(t.secondBrainInterval)
-      .setDesc(t.secondBrainIntervalDesc)
-      .addText((text) =>
-        text
-          .setPlaceholder("24")
-          .setValue(String(this.plugin.settings.secondBrain.schedulerIntervalHours))
-          .onChange(async (value) => {
-            const num = parseInt(value, 10);
-            if (isNaN(num)) {
-              return; // 숫자가 아니면 무시 (입력 도중 상태)
-            }
-            // <1/비정수 → max(1, round(n)) 보정 (Req 1.5)
-            const normalized = normalizeSecondBrainSettings({
-              ...this.plugin.settings.secondBrain,
-              schedulerIntervalHours: num,
-            });
-            Object.assign(this.plugin.settings.secondBrain, normalized);
-            await this.plugin.saveSettings();
-            // 보정 결과가 입력과 다르면 표시값을 동기화
-            if (normalized.schedulerIntervalHours !== num) {
-              text.setValue(String(normalized.schedulerIntervalHours));
-            }
-          })
-      );
+    addSetting(t.secondBrainInterval, t.secondBrainIntervalDesc, (setting) => {
+      setting
+        .addText((text) =>
+          text
+            .setPlaceholder("24")
+            .setValue(String(this.plugin.settings.secondBrain.schedulerIntervalHours))
+            .onChange(async (value) => {
+              const num = parseInt(value, 10);
+              if (isNaN(num)) {
+                return; // 숫자가 아니면 무시 (입력 도중 상태)
+              }
+              // <1/비정수 → max(1, round(n)) 보정 (Req 1.5)
+              const normalized = normalizeSecondBrainSettings({
+                ...this.plugin.settings.secondBrain,
+                schedulerIntervalHours: num,
+              });
+              Object.assign(this.plugin.settings.secondBrain, normalized);
+              await this.plugin.saveSettings();
+              // 보정 결과가 입력과 다르면 표시값을 동기화
+              if (normalized.schedulerIntervalHours !== num) {
+                text.setValue(String(normalized.schedulerIntervalHours));
+              }
+            })
+        );
+    });
 
     // To-Do 설정 (평면 폴더 구조)
-    new Setting(containerEl).setName(t.todo).setHeading();
+    addHeading(t.todo);
 
     // To-Do 폴더 항목 (평면 구조: {todoFolder}/YYYY-MM-DD To-Do.md)
-    new Setting(containerEl)
-      .setName(t.todoFolder)
-      .setDesc(t.todoFolderDesc)
-      .addText((text) =>
-        text
-          .setPlaceholder(TODO_FOLDER_DEFAULT)
-          .setValue(this.plugin.settings.todoFolder)
-          .onChange(async (value) => {
-            // 빈/공백 입력 시 기본값 적용
-            const normalized = normalizePlannerSetting(value, TODO_FOLDER_DEFAULT);
-            this.plugin.settings.todoFolder = normalized;
-            await this.plugin.saveSettings(); // 즉시 저장
-            // 정규화 결과가 입력과 다르면(공백/빈 입력) 표시값을 갱신
-            if (normalized !== value) text.setValue(normalized);
-          })
-      )
-      .addButton((btn) =>
-        btn.setIcon("folder").setTooltip("Browse").onClick(() => {
-          new FolderSuggestModal(this.app, voidAsync(async (folder) => {
-            this.plugin.settings.todoFolder = normalizePlannerSetting(folder, TODO_FOLDER_DEFAULT);
-            await this.plugin.saveSettings();
-            this.display();
-          }), t.folderSelectPlaceholder).open();
-        })
-      );
-
-    new Setting(containerEl)
-      .setName(t.todoTemplate)
-      .setDesc(t.todoTemplateDesc)
-      .addText((text) =>
-        text
-          .setPlaceholder(t.todoTemplatePlaceholder)
-          .setValue(this.plugin.settings.todoTemplateName)
-          .onChange(async (value) => {
-            this.plugin.settings.todoTemplateName = value.trim() || "Daily To-Do";
-            await this.plugin.saveSettings();
-          })
-      );
-
-    new Setting(containerEl)
-      .setName(t.todoArchiveFolder)
-      .setDesc(t.todoArchiveFolderDesc)
-      .addText((text) =>
-        text
-          .setPlaceholder("ToDo/Archive")
-          .setValue(this.plugin.settings.todoArchiveFolder)
-          .onChange(async (value) => {
-            this.plugin.settings.todoArchiveFolder = value.trim() || "ToDo/Archive";
-            await this.plugin.saveSettings();
-          })
-      )
-      .addButton((btn) =>
-        btn.setIcon("folder").setTooltip("Browse").onClick(() => {
-          new FolderSuggestModal(this.app, voidAsync(async (folder) => {
-            this.plugin.settings.todoArchiveFolder = folder;
-            await this.plugin.saveSettings();
-            this.display();
-          }), t.folderSelectPlaceholder).open();
-        })
-      );
-
-    new Setting(containerEl)
-      .setName(t.todoArchiveDays)
-      .setDesc(t.todoArchiveDaysDesc)
-      .addText((text) =>
-        text
-          .setPlaceholder("7")
-          .setValue(String(this.plugin.settings.todoArchiveDays))
-          .onChange(async (value) => {
-            const num = parseInt(value);
-            if (!isNaN(num) && num > 0) {
-              this.plugin.settings.todoArchiveDays = num;
+    addSetting(t.todoFolder, t.todoFolderDesc, (setting) => {
+      setting
+        .addText((text) =>
+          text
+            .setPlaceholder(TODO_FOLDER_DEFAULT)
+            .setValue(this.plugin.settings.todoFolder)
+            .onChange(async (value) => {
+              // 빈/공백 입력 시 기본값 적용
+              const normalized = normalizePlannerSetting(value, TODO_FOLDER_DEFAULT);
+              this.plugin.settings.todoFolder = normalized;
+              await this.plugin.saveSettings(); // 즉시 저장
+              // 정규화 결과가 입력과 다르면(공백/빈 입력) 표시값을 갱신
+              if (normalized !== value) text.setValue(normalized);
+            })
+        )
+        .addButton((btn) =>
+          btn.setIcon("folder").setTooltip("Browse").onClick(() => {
+            new FolderSuggestModal(this.app, voidAsync(async (folder) => {
+              this.plugin.settings.todoFolder = normalizePlannerSetting(folder, TODO_FOLDER_DEFAULT);
               await this.plugin.saveSettings();
-            }
+              this.refreshSettings();
+            }), t.folderSelectPlaceholder).open();
           })
-      );
+        );
+    });
+
+    addSetting(t.todoTemplate, t.todoTemplateDesc, (setting) => {
+      setting
+        .addText((text) =>
+          text
+            .setPlaceholder(t.todoTemplatePlaceholder)
+            .setValue(this.plugin.settings.todoTemplateName)
+            .onChange(async (value) => {
+              this.plugin.settings.todoTemplateName = value.trim() || "Daily To-Do";
+              await this.plugin.saveSettings();
+            })
+        );
+    });
+
+    addSetting(t.todoArchiveFolder, t.todoArchiveFolderDesc, (setting) => {
+      setting
+        .addText((text) =>
+          text
+            .setPlaceholder("ToDo/Archive")
+            .setValue(this.plugin.settings.todoArchiveFolder)
+            .onChange(async (value) => {
+              this.plugin.settings.todoArchiveFolder = value.trim() || "ToDo/Archive";
+              await this.plugin.saveSettings();
+            })
+        )
+        .addButton((btn) =>
+          btn.setIcon("folder").setTooltip("Browse").onClick(() => {
+            new FolderSuggestModal(this.app, voidAsync(async (folder) => {
+              this.plugin.settings.todoArchiveFolder = folder;
+              await this.plugin.saveSettings();
+              this.refreshSettings();
+            }), t.folderSelectPlaceholder).open();
+          })
+        );
+    });
+
+    addSetting(t.todoArchiveDays, t.todoArchiveDaysDesc, (setting) => {
+      setting
+        .addText((text) =>
+          text
+            .setPlaceholder("7")
+            .setValue(String(this.plugin.settings.todoArchiveDays))
+            .onChange(async (value) => {
+              const num = parseInt(value);
+              if (!isNaN(num) && num > 0) {
+                this.plugin.settings.todoArchiveDays = num;
+                await this.plugin.saveSettings();
+              }
+            })
+        );
+    });
 
     // 아카이브 비우기: 별도 폴더 없이 위의 "아카이브 폴더"를 기준으로 동작한다.
-    new Setting(containerEl)
-      .setName(t.archiveCleanDays)
-      .setDesc(t.archiveCleanDaysDesc)
-      .addText((text) =>
-        text
-          .setPlaceholder("90")
-          .setValue(String(this.plugin.settings.archiveCleanDays))
-          .onChange(async (value) => {
-            const num = parseInt(value);
-            if (!isNaN(num) && num > 0) {
-              this.plugin.settings.archiveCleanDays = num;
-              await this.plugin.saveSettings();
-            }
-          })
-      )
-      .addButton((btn) =>
-        btn
-          .setButtonText(t.archiveCleanBtn)
-          .setWarning()
-          .onClick(() => {
-            const viewLang = VIEW_I18N[lang] || VIEW_I18N.en;
-            new CleanArchiveModal(this.app, this.plugin, viewLang).open();
-          })
-      );
+    addSetting(t.archiveCleanDays, t.archiveCleanDaysDesc, (setting) => {
+      setting
+        .addText((text) =>
+          text
+            .setPlaceholder("90")
+            .setValue(String(this.plugin.settings.archiveCleanDays))
+            .onChange(async (value) => {
+              const num = parseInt(value);
+              if (!isNaN(num) && num > 0) {
+                this.plugin.settings.archiveCleanDays = num;
+                await this.plugin.saveSettings();
+              }
+            })
+        )
+        .addButton((btn) => {
+          if (requireApiVersion("1.13.0")) btn.setDestructive();
+          else btn.buttonEl.addClass("mod-warning");
+          btn
+            .setButtonText(t.archiveCleanBtn)
+            .onClick(() => {
+              const viewLang = VIEW_I18N[lang] || VIEW_I18N.en;
+              new CleanArchiveModal(this.app, this.plugin, viewLang).open();
+            });
+        });
+    });
 
     // 웹 클리퍼 설정
-    new Setting(containerEl).setName(t.webClip).setHeading();
+    addHeading(t.webClip);
 
-    new Setting(containerEl)
-      .setName(t.webClipFolder)
-      .setDesc(t.webClipFolderDesc)
-      .addText((text) =>
-        text
-          .setPlaceholder("WebClips")
-          .setValue(this.plugin.settings.webClipFolder)
-          .onChange(async (value) => {
-            this.plugin.settings.webClipFolder = value.trim() || "WebClips";
-            await this.plugin.saveSettings();
+    addSetting(t.webClipFolder, t.webClipFolderDesc, (setting) => {
+      setting
+        .addText((text) =>
+          text
+            .setPlaceholder("WebClips")
+            .setValue(this.plugin.settings.webClipFolder)
+            .onChange(async (value) => {
+              this.plugin.settings.webClipFolder = value.trim() || "WebClips";
+              await this.plugin.saveSettings();
+            })
+        )
+        .addButton((btn) =>
+          btn.setIcon("folder").setTooltip("Browse").onClick(() => {
+            new FolderSuggestModal(this.app, voidAsync(async (folder) => {
+              this.plugin.settings.webClipFolder = folder;
+              await this.plugin.saveSettings();
+              this.refreshSettings();
+            }), t.folderSelectPlaceholder).open();
           })
-      )
-      .addButton((btn) =>
-        btn.setIcon("folder").setTooltip("Browse").onClick(() => {
-          new FolderSuggestModal(this.app, voidAsync(async (folder) => {
-            this.plugin.settings.webClipFolder = folder;
-            await this.plugin.saveSettings();
-            this.display();
-          }), t.folderSelectPlaceholder).open();
-        })
-      );
+        );
+    });
 
     // Obsidian 스킬 설정
     // 내장(builtin) 스킬은 항상 활성화되며 목록에 노출하지 않는다.
     // 번들 토글 스킬(예: 한국어 윤문)과 사용자 커스텀 스킬을 토글로 표시한다.
-    new Setting(containerEl).setName(t.skills).setHeading();
+    addHeading(t.skills);
 
     // 1) 번들 토글 스킬 (builtin이 아닌 내장 제공 스킬)
     const bundledToggleable = SKILLS.filter((s) => !s.builtin);
     for (const skill of bundledToggleable) {
-      new Setting(containerEl)
-        // ko 이외의 언어는 영어 설명을 쓴다. `=== "en"`으로 갈랐을 때는 ja 사용자에게
-        // 한국어 설명이 보였다 — 폴백은 en이어야 한다.
-        .setName(this.plugin.settings.language === "ko" ? skill.name : skill.nameEn ?? skill.name)
-        .setDesc(this.plugin.settings.language === "ko" ? skill.description : skill.descriptionEn)
-        .addToggle((toggle) =>
-          toggle
-            .setValue(this.plugin.settings.enabledSkills.includes(skill.id))
-            .onChange(async (value) => {
-              const skills = this.plugin.settings.enabledSkills;
-              if (value && !skills.includes(skill.id)) {
-                skills.push(skill.id);
-              } else if (!value) {
-                const idx = skills.indexOf(skill.id);
-                if (idx >= 0) skills.splice(idx, 1);
-              }
-              await this.plugin.saveSettings();
-            })
-        );
+      addSetting(this.plugin.settings.language === "ko" ? skill.name : skill.nameEn ?? skill.name, this.plugin.settings.language === "ko" ? skill.description : skill.descriptionEn, (setting) => {
+        setting
+          .addToggle((toggle) =>
+            toggle
+              .setValue(this.plugin.settings.enabledSkills.includes(skill.id))
+              .onChange(async (value) => {
+                const skills = this.plugin.settings.enabledSkills;
+                if (value && !skills.includes(skill.id)) {
+                  skills.push(skill.id);
+                } else if (!value) {
+                  const idx = skills.indexOf(skill.id);
+                  if (idx >= 0) skills.splice(idx, 1);
+                }
+                await this.plugin.saveSettings();
+              })
+          );
+      });
     }
 
     // 2) 사용자 커스텀 스킬 (A안: 설정에 저장, 토글 + 편집 + 삭제)
     for (const skill of this.plugin.settings.customSkills) {
-      new Setting(containerEl)
-        .setName(skill.name || skill.id)
-        .setDesc(skill.description || "")
-        .addToggle((toggle) =>
-          toggle.setValue(skill.enabled).onChange(async (value) => {
-            skill.enabled = value;
-            await this.plugin.saveSettings();
-          })
-        )
-        .addExtraButton((btn) =>
-          btn
-            .setIcon("pencil")
-            .setTooltip(t.skillEdit)
-            .onClick(() => {
-              new SkillEditModal(this.app, this.plugin, t, skill, () => this.display()).open();
-            })
-        )
-        .addExtraButton((btn) =>
-          btn
-            .setIcon("trash")
-            .setTooltip(t.skillDelete)
-            .onClick(async () => {
-              const idx = this.plugin.settings.customSkills.indexOf(skill);
-              if (idx >= 0) this.plugin.settings.customSkills.splice(idx, 1);
+      addSetting(skill.name || skill.id, skill.description || "", (setting) => {
+        setting
+          .addToggle((toggle) =>
+            toggle.setValue(skill.enabled).onChange(async (value) => {
+              skill.enabled = value;
               await this.plugin.saveSettings();
-              this.display();
             })
-        );
+          )
+          .addExtraButton((btn) =>
+            btn
+              .setIcon("pencil")
+              .setTooltip(t.skillEdit)
+              .onClick(() => {
+                new SkillEditModal(this.app, this.plugin, t, skill, () => this.refreshSettings()).open();
+              })
+          )
+          .addExtraButton((btn) =>
+            btn
+              .setIcon("trash")
+              .setTooltip(t.skillDelete)
+              .onClick(async () => {
+                const idx = this.plugin.settings.customSkills.indexOf(skill);
+                if (idx >= 0) this.plugin.settings.customSkills.splice(idx, 1);
+                await this.plugin.saveSettings();
+                this.refreshSettings();
+              })
+          );
+      });
     }
 
     // 3) 스킬 추가 버튼
-    new Setting(containerEl)
-      .setName(t.skillAdd)
-      .setDesc(t.skillAddDesc)
-      .addButton((btn) =>
-        btn.setButtonText(t.skillAdd).setCta().onClick(() => {
-          new SkillEditModal(this.app, this.plugin, t, null, () => this.display()).open();
-        })
-      );
+    addSetting(t.skillAdd, t.skillAddDesc, (setting) => {
+      setting
+        .addButton((btn) =>
+          btn.setButtonText(t.skillAdd).setCta().onClick(() => {
+            new SkillEditModal(this.app, this.plugin, t, null, () => this.refreshSettings()).open();
+          })
+        );
+    });
 
     // MCP 서버 설정
-    new Setting(containerEl).setName(t.mcpServers).setHeading();
+    addHeading(t.mcpServers);
 
-    new Setting(containerEl)
-      .setName(t.mcpManage)
-      .setDesc(t.mcpManageDesc)
-      .addButton((btn) =>
-        btn.setButtonText(t.mcpEdit).onClick(() => {
-          new McpConfigModal(this.app, this.plugin, () => this.display()).open();
-        })
-      )
-      .addButton((btn) =>
-        btn.setButtonText(t.mcpStopAll).onClick(() => {
-          this.plugin.mcpManager.disconnectAll();
-          new Notice(t.mcpStopped);
-          this.display();
-        })
-      );
+    addSetting(t.mcpManage, t.mcpManageDesc, (setting) => {
+      setting
+        .addButton((btn) =>
+          btn.setButtonText(t.mcpEdit).onClick(() => {
+            new McpConfigModal(this.app, this.plugin, () => this.refreshSettings()).open();
+          })
+        )
+        .addButton((btn) =>
+          btn.setButtonText(t.mcpStopAll).onClick(() => {
+            this.plugin.mcpManager.disconnectAll();
+            new Notice(t.mcpStopped);
+            this.refreshSettings();
+          })
+        );
+    });
 
     // MCP 서버 상태 리스트 (관리 버튼 아래, 들여쓰기)
-    const mcpStatus = this.plugin.mcpManager.getStatus();
-    if (mcpStatus.length > 0) {
-      const statusEl = containerEl.createDiv({ cls: "ba-mcp-status-list" });
-      for (const s of mcpStatus) {
-        const icon = s.connected ? "🟢" : "🔴";
-        statusEl.createDiv({
-          text: `${icon} ${s.name} — ${s.toolCount} tools`,
+    addSetting("", undefined, (setting) => {
+      const mcpStatus = this.plugin.mcpManager.getStatus();
+      const statusEl = setting.settingEl;
+      statusEl.empty();
+      statusEl.addClass("ba-mcp-status-list");
+      if (mcpStatus.length > 0) {
+        for (const s of mcpStatus) {
+          const icon = s.connected ? "🟢" : "🔴";
+          statusEl.createDiv({ text: `${icon} ${s.name} — ${s.toolCount} tools` });
+        }
+      } else {
+        statusEl.createEl("p", {
+          text: t.mcpNoServers,
+          cls: "setting-item-description",
         });
       }
-    } else {
-      containerEl.createEl("p", {
-        text: t.mcpNoServers,
-        cls: "setting-item-description ba-mcp-status-list",
-      });
-    }
+    }, false);
 
     // MCP 도구 타임아웃 (MCP 서버 관리 아래에 배치, 숫자 입력 1~60초)
-    new Setting(containerEl)
-      .setName(t.mcpTimeout)
-      .setDesc(t.mcpTimeoutDesc)
-      .addText((text) => {
-        text.inputEl.type = "number";
-        text.inputEl.min = "1";
-        text.inputEl.max = "60";
-        text.setValue(String(this.plugin.settings.mcpTimeout));
-        text.onChange(async (value) => {
-          const parsed = parseInt(value, 10);
-          if (!Number.isFinite(parsed)) return; // 빈/잘못된 입력은 무시
-          const clamped = Math.max(1, Math.min(60, parsed));
-          this.plugin.settings.mcpTimeout = clamped;
-          await this.plugin.saveSettings();
-          // 실행 중인 MCP 서버에 즉시 반영
-          this.plugin.mcpManager.setTimeout(clamped);
-          // 범위를 벗어난 입력은 보정된 값으로 표시 갱신
-          if (clamped !== parsed) text.setValue(String(clamped));
+    addSetting(t.mcpTimeout, t.mcpTimeoutDesc, (setting) => {
+      setting
+        .addText((text) => {
+          text.inputEl.type = "number";
+          text.inputEl.min = "1";
+          text.inputEl.max = "60";
+          text.setValue(String(this.plugin.settings.mcpTimeout));
+          text.onChange(async (value) => {
+            const parsed = parseInt(value, 10);
+            if (!Number.isFinite(parsed)) return; // 빈/잘못된 입력은 무시
+            const clamped = Math.max(1, Math.min(60, parsed));
+            this.plugin.settings.mcpTimeout = clamped;
+            await this.plugin.saveSettings();
+            // 실행 중인 MCP 서버에 즉시 반영
+            this.plugin.mcpManager.setTimeout(clamped);
+            // 범위를 벗어난 입력은 보정된 값으로 표시 갱신
+            if (clamped !== parsed) text.setValue(String(clamped));
+          });
         });
-      });
+    });
 
     // 추천 플러그인 설치 안내 (설정 화면 맨 아래로 이동)
-    new Setting(containerEl).setName(t.recommendedPlugins).setHeading();
+    addHeading(t.recommendedPlugins);
 
     // 이미 설치한 사용자에게 설치 버튼을 계속 보여주지 않도록 활성 여부를 확인한다.
-    this.addRecommendedPlugin(
-      containerEl,
-      "code-styler",
-      t.codeStylerInstall,
-      t.codeStylerInfo,
-      t.pluginInstalled
-    );
-    this.addRecommendedPlugin(
-      containerEl,
-      "obsidian-tasks-plugin",
-      t.todoTasksInstall,
-      t.todoTasksInfo,
-      t.pluginInstalled
-    );
+    addDefinition(this.addRecommendedPlugin(
+        "code-styler",
+        t.codeStylerInstall,
+        t.codeStylerInfo,
+        t.pluginInstalled
+      ));
+    addDefinition(this.addRecommendedPlugin(
+        "obsidian-tasks-plugin",
+        t.todoTasksInstall,
+        t.todoTasksInfo,
+        t.pluginInstalled
+      ));
 
     // 후원 배너
-    const sponsorRow = containerEl.createDiv({ cls: "ba-about-sponsor" });
-    sponsorRow.createSpan({ text: t.sponsorLabel });
-    const sponsorLink = sponsorRow.createEl("a", {
-      href: "https://buymeacoffee.com/teinam",
-    });
-    sponsorLink.setAttr("target", "_blank");
-    sponsorLink.createEl("img", {
-      attr: {
-        src: "https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png",
-        alt: "Buy Me A Coffee",
-        height: "36",
-      },
-      cls: "ba-sponsor-img",
-    });
+    addSetting(t.sponsorLabel, undefined, (setting) => {
+      const sponsorRow = setting.settingEl;
+      sponsorRow.empty();
+      sponsorRow.addClass("ba-about-sponsor");
+      sponsorRow.createSpan({ text: t.sponsorLabel });
+      const sponsorLink = sponsorRow.createEl("a", {
+        href: "https://buymeacoffee.com/teinam",
+      });
+      sponsorLink.setAttr("target", "_blank");
+      sponsorLink.createEl("img", {
+        attr: {
+          src: "https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png",
+          alt: "Buy Me A Coffee",
+          height: "36",
+        },
+        cls: "ba-sponsor-img",
+      });
+    }, false);
 
     // 사용자 가이드 — 후원 배너 아래에 둔다.
-    const readmeRow = containerEl.createDiv({ cls: "ba-about-readme" });
-    const readmeLink = readmeRow.createEl("a", {
-      text: t.readmeLabel,
-      cls: "ba-readme-link",
-    });
-    readmeLink.addEventListener("click", (e) => {
-      e.preventDefault();
-      // README는 플러그인 폴더(설정 디렉터리 하위)에 있어 볼트 인덱스에 잡히지 않는다.
-      // 즉 탭으로 열 수 있는 TFile 이 존재하지 않으므로 GitHub 사본으로 보낸다.
-      window.open(`https://github.com/teinam/obsidian-agent-llms/blob/main/${t.readmeFile}`);
-    });
+    addSetting(t.readmeLabel, undefined, (setting) => {
+      const readmeRow = setting.settingEl;
+      readmeRow.empty();
+      readmeRow.addClass("ba-about-readme");
+      const readmeLink = readmeRow.createEl("a", {
+        text: t.readmeLabel,
+        cls: "ba-readme-link",
+      });
+      readmeLink.addEventListener("click", (e) => {
+        e.preventDefault();
+        window.open(`https://github.com/teinam/obsidian-agent-llms/blob/main/${t.readmeFile}`);
+      });
+    }, false);
+    return sections;
   }
 
   /**
@@ -1732,63 +1775,68 @@ export class GeminiSettingTab extends PluginSettingTab {
    * 이미 활성화된 플러그인은 설치 버튼 대신 "설치됨" 배지를 보여준다.
    */
   private addRecommendedPlugin(
-    containerEl: HTMLElement,
     pluginId: string,
     installLabel: string,
     description: string,
     installedLabel: string
-  ): void {
-    const setting = new Setting(containerEl).setName(installLabel).setDesc(description);
+  ): SettingRow {
+    return {
+      name: installLabel,
+      desc: description,
+      render: (setting) => {
+        if (isPluginEnabled(this.app, pluginId)) {
+          // 설치·활성 상태 — 버튼 대신 정적 배지를 표시한다.
+          const badge = setting.controlEl.createSpan({ cls: "ba-plugin-installed" });
+          // 체크 아이콘은 장식이므로 스크린리더에서 제외하고, 상태는 텍스트로 전달한다.
+          const iconEl = badge.createSpan({ attr: { "aria-hidden": "true" } });
+          setIcon(iconEl, "check");
+          badge.createSpan({ text: installedLabel });
+          return;
+        }
 
-    if (isPluginEnabled(this.app, pluginId)) {
-      // 설치·활성 상태 — 버튼 대신 정적 배지를 표시한다.
-      const badge = setting.controlEl.createSpan({ cls: "ba-plugin-installed" });
-      // 체크 아이콘은 장식이므로 스크린리더에서 제외하고, 상태는 텍스트로 전달한다.
-      const iconEl = badge.createSpan({ attr: { "aria-hidden": "true" } });
-      setIcon(iconEl, "check");
-      badge.createSpan({ text: installedLabel });
-      return;
-    }
-
-    setting.addButton((btn) =>
-      btn.setButtonText(installLabel).onClick(() => {
-        window.open(`obsidian://show-plugin?id=${pluginId}`);
-      })
-    );
+        setting.addButton((btn) =>
+          btn.setButtonText(installLabel).onClick(() => {
+            window.open(`obsidian://show-plugin?id=${pluginId}`);
+          })
+        );
+      },
+    };
   }
 
   // base URL 입력 설정 추가 (OpenAI/Ollama 공용)
   // onChange에서 isValidBaseUrl로 형식을 검증하여, 유효하지 않으면 Notice 오류를 띄우고
   // 값을 Settings_Store에 영속하지 않는다(이전 유효값 유지 — Req 2.10).
   private addBaseUrlSetting(
-    containerEl: HTMLElement,
     name: string,
     desc: string,
     placeholder: string,
     getCurrent: () => string,
     setValue: (v: string) => void,
     invalidMsg: string,
-  ): void {
-    new Setting(containerEl)
-      .setName(name)
-      .setDesc(desc)
-      .addText((text) =>
-        text
-          .setPlaceholder(placeholder)
-          .setValue(getCurrent())
-          .onChange(async (value) => {
-            const trimmed = value.trim();
-            // 형식 검증 실패 시: 영속하지 않고 이전 유효값 유지 (Req 2.10)
-            if (!isValidBaseUrl(trimmed)) {
-              new Notice(invalidMsg);
-              return;
-            }
-            setValue(trimmed);
-            await this.plugin.saveSettings();
-            // base URL 변경 시 모델 목록 재로드 예약
-            this.scheduleModelReload();
-          })
-      );
+  ): SettingRow {
+    return {
+      name,
+      desc,
+      render: (setting) => {
+        setting.addText((text) =>
+          text
+            .setPlaceholder(placeholder)
+            .setValue(getCurrent())
+            .onChange(async (value) => {
+              const trimmed = value.trim();
+              // 형식 검증 실패 시: 영속하지 않고 이전 유효값 유지 (Req 2.10)
+              if (!isValidBaseUrl(trimmed)) {
+                new Notice(invalidMsg);
+                return;
+              }
+              setValue(trimmed);
+              await this.plugin.saveSettings();
+              // base URL 변경 시 모델 목록 재로드 예약
+              this.scheduleModelReload();
+            })
+        );
+      },
+    };
   }
 
   /**
@@ -1798,6 +1846,10 @@ export class GeminiSettingTab extends PluginSettingTab {
    * 드롭다운/텍스트 입력/백엔드 전환을 단일 지점에서 처리하여 타이핑 중 중복 알림을 방지한다.
    */
   hide(): void {
+    if (this.credentialDebounceTimer !== null) {
+      window.clearTimeout(this.credentialDebounceTimer);
+      this.credentialDebounceTimer = null;
+    }
     const snapshot = this.embeddingSignatureSnapshot;
     // 다음 오픈을 위해 스냅샷을 초기화한다.
     this.embeddingSignatureSnapshot = null;
@@ -1818,62 +1870,64 @@ export class GeminiSettingTab extends PluginSettingTab {
   // 기존 채팅 드롭다운 패턴 재사용: 현재값을 기본 옵션으로 추가 → listModels(kind) 결과로 채움
   // → 실패/빈 목록 시 현재값 유지(Req 7.9, 12.4), 정상 목록이나 현재 ID 미존재 시에도 현재값 유지(Req 7.9.1)
   private addProviderModelDropdown(
-    containerEl: HTMLElement,
     name: string,
     desc: string,
     getCurrent: () => string,
     setValue: (v: string) => void,
     kind: "chat" | "embedding",
-  ): void {
-    new Setting(containerEl)
-      .setName(name)
-      .setDesc(desc)
-      .addDropdown((dropdown) => {
-        // 현재 설정값을 기본 옵션으로 추가
-        const current = getCurrent();
-        if (current) {
-          dropdown.addOption(current, current);
-        }
-        dropdown.setValue(current);
-        dropdown.onChange(async (value) => {
-          setValue(value);
-          if (kind === "chat") {
-            // 채팅 모델이 바뀌면 effort 허용 집합이 달라지므로 저장값을 보정한다.
-            this.plugin.settings.effort = clampEffort(
-              this.plugin.settings.aiBackend,
-              value,
-              this.plugin.settings.effort
-            );
+  ): SettingRow {
+    return {
+      name,
+      desc,
+      render: (setting) => {
+        setting.addDropdown((dropdown) => {
+          // 현재 설정값을 기본 옵션으로 추가
+          const current = getCurrent();
+          if (current) {
+            dropdown.addOption(current, current);
           }
-          await this.plugin.saveSettings();
-          // effort 항목 노출/옵션이 모델에 따라 바뀌므로 탭을 다시 그린다.
-          if (kind === "chat") this.display();
+          dropdown.setValue(current);
+          dropdown.onChange(async (value) => {
+            setValue(value);
+            if (kind === "chat") {
+              // 채팅 모델이 바뀌면 effort 허용 집합이 달라지므로 저장값을 보정한다.
+              this.plugin.settings.effort = clampEffort(
+                this.plugin.settings.aiBackend,
+                value,
+                this.plugin.settings.effort
+              );
+            }
+            await this.plugin.saveSettings();
+            // effort 항목 노출/옵션이 모델에 따라 바뀌므로 탭을 다시 그린다.
+            if (kind === "chat") this.refreshSettings();
+          });
+          // 비동기로 모델 목록 로드 후 드롭다운 갱신
+          void (async () => {
+            try {
+              const models = await this.plugin.aiClient.listModels(kind);
+              // 빈 목록이면 현재값 유지 (Req 7.9, 12.4)
+              if (!models || models.length === 0) {
+                return;
+              }
+              dropdown.selectEl.empty();
+              const cur = getCurrent();
+              let hasCurrent = false;
+              for (const m of models) {
+                dropdown.addOption(m.modelId, m.modelName || m.modelId);
+                if (m.modelId === cur) hasCurrent = true;
+              }
+              // 정상 목록이지만 현재 설정 ID가 목록에 없으면 현재값을 옵션으로 유지 (Req 7.9.1)
+              if (cur && !hasCurrent) {
+                dropdown.addOption(cur, cur);
+              }
+              dropdown.setValue(cur);
+            } catch {
+              // 모델 로드 실패 시 현재값 유지 (Req 7.9, 12.4)
+            }
+          })();
         });
-        // 비동기로 모델 목록 로드 후 드롭다운 갱신
-        void (async () => {
-          try {
-            const models = await this.plugin.aiClient.listModels(kind);
-            // 빈 목록이면 현재값 유지 (Req 7.9, 12.4)
-            if (!models || models.length === 0) {
-              return;
-            }
-            dropdown.selectEl.empty();
-            const cur = getCurrent();
-            let hasCurrent = false;
-            for (const m of models) {
-              dropdown.addOption(m.modelId, m.modelName || m.modelId);
-              if (m.modelId === cur) hasCurrent = true;
-            }
-            // 정상 목록이지만 현재 설정 ID가 목록에 없으면 현재값을 옵션으로 유지 (Req 7.9.1)
-            if (cur && !hasCurrent) {
-              dropdown.addOption(cur, cur);
-            }
-            dropdown.setValue(cur);
-          } catch {
-            // 모델 로드 실패 시 현재값 유지 (Req 7.9, 12.4)
-          }
-        })();
-      });
+      },
+    };
   }
 
   // 비밀 입력 필드 옆에 눈 아이콘 토글 버튼 추가
