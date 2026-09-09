@@ -12,6 +12,8 @@
 
 [English](README.md) | [한국어](README-KR.md) | [日本語](README-JA.md)
 
+This documentation describes **0.7.10**. See the [changelog](CHANGELOG.md) for version history.
+
 An AI assistant sidebar plugin for Obsidian with multi-provider backend support — AWS Bedrock, Google Gemini, OpenAI, and Ollama.
 
 > **Note on command names:** command palette entries, notices, the status bar, and tool results follow the UI language you pick in settings (English, 한국어, 日本語). Obsidian caches the palette at load time, so restart the app after switching languages to see the new names.
@@ -63,7 +65,7 @@ An AI assistant sidebar plugin for Obsidian with multi-provider backend support 
 
 Requires Obsidian 1.7.2 or later, on desktop.
 
-From 0.7.9, Obsidian 1.13+ settings search can find the settings shown for the current backend. Earlier Obsidian versions retain the settings screen.
+Obsidian 1.13+ settings search can find the settings shown for the current backend. Earlier Obsidian versions retain the settings screen.
 
 ### BRAT (Recommended)
 
@@ -106,17 +108,19 @@ The sidebar icon, model list, and branding update dynamically when you switch.
 
 ### 2. Configure Credentials
 
-**Bedrock:** Enter a **long-term Bedrock API key** (AWS Console → Bedrock → API keys) and set the AWS Region. The key is encrypted with the OS keychain and stored locally — it never lands in your vault.
+**Bedrock:** Enter a **Bedrock API key** (AWS Console → Bedrock → API keys) and set the AWS Region. The plugin does not refresh the key automatically; replace it when it expires.
 
 Key issuance, model access, and using multiple machines: [Bedrock setup guide](docs/bedrock-setup-en.md)
 
-> AWS access key and `~/.aws` profile (including SSO) authentication were removed in 0.3.0. Access keys are long-lived credentials with the largest blast radius, and SSO requires `aws sso login` on every machine plus re-login every 8-12 hours — too much friction for a note-taking app used across several machines. Existing users need to enter a Bedrock API key in settings.
+> AWS access key and `~/.aws` profile (including SSO) authentication were removed in 0.3.0. This backend uses the Bedrock API key entered in settings.
 
 Required IAM permissions:
+
 - `bedrock:InvokeModelWithResponseStream`
 - `bedrock:InvokeModel`
 - `bedrock:ListFoundationModels`
 - `bedrock:ListInferenceProfiles`
+- `bedrock:CallWithBearerToken`
 
 **Gemini:** Enter your API key from [Google AI Studio](https://aistudio.google.com/).
 
@@ -124,7 +128,7 @@ Required IAM permissions:
 
 **Ollama:** Enter the server base URL, or leave it empty to use `http://localhost:11434`. No API key is needed.
 
-> **Note:** Credentials are stored locally using OS keychain encryption and are NOT synced via iCloud. Configure on each device separately.
+> **Key storage:** Successfully saved keys are encrypted with the OS keychain and excluded from vault sync. Configure each device separately. Legacy keys in `data.json` are removed only after local storage succeeds; if saving fails, resolve the issue and save again before restarting.
 
 ### 3. Open the Sidebar
 
@@ -237,7 +241,7 @@ These capabilities support the features below. MCP servers have their own access
 - **Vault enumeration** — Search, Graph RAG indexing, Second Brain, and file selection use Obsidian's file-list APIs. Indexing splits notes and supported text attachments into chunks and **sends them to the configured embedding API**. Attached notes and tool-read content can also enter model requests. Remote endpoints receive this content; local Ollama keeps these requests on the device.
 - **Clipboard** — Written when you press a message's copy button and read when you paste into chat. Success appears only after the write completes; failures show a notice.
 
-See the [0.7.9 review record (Korean)](docs/review-0.7.9.md) for changes and validation scope.
+See the [0.7.10 review record (Korean)](docs/review-0.7.10.md) for changes and validation scope.
 
 ### Verifying a release
 

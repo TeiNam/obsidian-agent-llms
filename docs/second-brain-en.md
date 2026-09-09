@@ -4,6 +4,8 @@
 
 [English](second-brain-en.md) | [한국어](second-brain-kr.md) | [日本語](second-brain-ja.md)
 
+This guide describes **0.7.10**.
+
 This document covers the vault search (Graph RAG) and knowledge-writing (Second Brain) layers in detail. For installation and basic usage, see the README.
 
 > Command palette labels follow the UI language you pick in settings. The names quoted below are the English ones; restart Obsidian after switching languages, since the palette is cached at load time.
@@ -36,6 +38,8 @@ Settings → Agent LLMs → **Graph RAG Search**:
 
 **Cost:** one embedding call per search query. Indexing costs one embedding call per chunk. No chat completion call is made by search itself.
 
+**Data sent for indexing:** notes and supported text attachments are split into chunks and sent to the configured embedding API. Remote endpoints receive that text. To process embedding requests on this device, select an Ollama server running locally.
+
 ### Second Brain Layer
 
 The Second Brain Layer adds an active write layer on top of Graph RAG's read layer. It can create and update notes inside one folder that you designate.
@@ -48,7 +52,7 @@ Settings → Agent LLMs → **Second Brain**:
 |---------|---------|-------|
 | Enable Second Brain | Off | Master switch for the whole write layer |
 | Wiki Folder | `Second Brain` | Root folder where generated notes live |
-| Enable Scheduler | Off | Runs the non-destructive cleanup pipeline on app startup once the interval has elapsed |
+| Enable Scheduler | Off | Checks on startup and every 30 minutes; runs cleanup once the configured interval has elapsed |
 | Scheduler Interval (hours) | 24 | Minimum 1 |
 
 #### Will the AI overwrite my notes?
@@ -94,16 +98,16 @@ Block keys currently in use: `synthesis` (synthesize), `overview` / `modules` / 
 #### Additional safeguards
 
 - Writes outside the Wiki Folder are rejected, including `..` traversal, absolute paths, and drive letters.
-- Destructive tool calls can require a confirmation modal (enable **Confirm Note Changes** in settings).
+- Enable **Confirm note changes and MCP tools** in settings to confirm tools that create, edit, delete, or move notes, including the generating tools above, and every external MCP tool. This option is off by default.
 - If a result is produced while the index is stale (embedding model changed), a warning is appended telling you to re-index and re-run.
 
 #### Scheduler
 
 The cleanup pipeline runs five non-destructive steps in order: ensure the wiki folders exist → refresh the `index.md` catalog → write the knowledge gap report → refresh the Bases dashboard → append to the activity log.
 
-Step failures are isolated, so the remaining steps still run. If every step fails, the last-run timestamp is not updated and the pipeline retries on the next trigger.
+Step failures are isolated, so the remaining steps still run. If every step fails, the last-run timestamp is not updated. Automatic retries wait for a one-hour cooldown within the current app session, then run at the next eligible check.
 
-There is no background timer. When the scheduler is enabled, the only automatic entry point runs as Obsidian starts up: the plugin checks whether the configured interval (default 24 hours) has elapsed since the last run, and runs the pipeline if it has. Run it on demand with **Run Second Brain cleanup (scheduler)**.
+With both Second Brain and the scheduler enabled, the plugin checks on startup and every **30 minutes** while Obsidian remains open. It runs the pipeline only when the configured interval (default **24 hours**) has elapsed; the check interval is not the cleanup interval. Nothing runs while Obsidian is closed. With Second Brain enabled, **Run Second Brain cleanup (scheduler)** runs it on demand even if the scheduler toggle is off. The pipeline makes no LLM calls.
 
 ### Approval-Based Cleanup
 
