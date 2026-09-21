@@ -49,7 +49,8 @@ export const TOOL_I18N = {
     noteAppended: (path: string) => `Content appended: ${path}`,
     noteOpened: (path: string) => `Note opened: ${path}`,
     findEmpty: "The text to replace (find) is empty. Specify the string to look for.",
-    findNotFound: (snippet: string) => `Could not find the text to replace: "${snippet}..."`,
+    findNotFound: (snippet: string) =>
+      `Could not find the text to replace: "${snippet}..."\nNo changes were made. Read the same file again with read_note and copy find exactly from the body, excluding the path header and preserving whitespace and line breaks.`,
     editParamsRequired: "Either `content` or `find`/`replace` is required.",
     emptyFolder: "The folder is empty.",
     noActiveNote: "No note is currently open.",
@@ -153,7 +154,8 @@ export const TOOL_I18N = {
     noteAppended: (path: string) => `내용이 추가되었습니다: ${path}`,
     noteOpened: (path: string) => `노트를 열었습니다: ${path}`,
     findEmpty: "교체할 텍스트(find)가 비어 있습니다. 찾을 문자열을 지정해 주세요.",
-    findNotFound: (snippet: string) => `교체 대상 텍스트를 찾을 수 없습니다: "${snippet}..."`,
+    findNotFound: (snippet: string) =>
+      `교체 대상 텍스트를 찾을 수 없습니다: "${snippet}..."\n파일은 변경하지 않았습니다. read_note로 같은 파일을 다시 읽고, 경로 안내를 제외한 본문에서 공백·줄바꿈까지 정확히 복사한 find로 재시도하세요.`,
     editParamsRequired: "content 또는 find/replace 파라미터가 필요합니다.",
     emptyFolder: "빈 폴더입니다.",
     noActiveNote: "현재 열려있는 노트가 없습니다.",
@@ -252,7 +254,8 @@ export const TOOL_I18N = {
     noteAppended: (path: string) => `内容を追記しました: ${path}`,
     noteOpened: (path: string) => `ノートを開きました: ${path}`,
     findEmpty: "置換するテキスト(find)が空です。検索する文字列を指定してください。",
-    findNotFound: (snippet: string) => `置換対象のテキストが見つかりません: "${snippet}..."`,
+    findNotFound: (snippet: string) =>
+      `置換対象のテキストが見つかりません: "${snippet}..."\nファイルは変更していません。read_noteで同じファイルを読み直し、パス案内を除いた本文から空白・改行も含めて正確にコピーしたfindで再試行してください。`,
     editParamsRequired: "content または find/replace パラメータが必要です。",
     emptyFolder: "空のフォルダです。",
     noActiveNote: "現在開いているノートがありません。",
