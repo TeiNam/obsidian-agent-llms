@@ -14,14 +14,15 @@ import { TOOL_I18N } from "./tool-result-i18n";
  */
 
 // editNote 테스트용 App 모킹
-function makeApp(fileContent: string): any {
+function makeApp(fileContent: string, basename = "note"): any {
   const mockFile = new TFile();
-  mockFile.path = "test/note.md";
-  mockFile.basename = "note";
+  mockFile.path = `test/${basename}.md`;
+  mockFile.basename = basename;
 
   return {
     vault: {
       getAbstractFileByPath: vi.fn((_path: string) => mockFile),
+      cachedRead: vi.fn(async () => fileContent),
       read: vi.fn(async () => fileContent),
       modify: vi.fn(async () => {}),
     },
@@ -31,6 +32,36 @@ function makeApp(fileContent: string): any {
 function makeIndexer(): any {
   return { search: vi.fn().mockResolvedValue([]) };
 }
+
+describe("read_note → edit_note 원문 전달", () => {
+  it.each([
+    ["query-planner", "쿼리 플래너 동작 원리와 튜닝"],
+    ["btree-vs-lsm-tree", "B-Tree와 LSM-Tree"],
+    ["gc-pause-database", "GC Pause가 데이터베이스 지연을 만드는 구조"],
+  ])("%s: 파일명을 가짜 제목으로 추가하지 않아 읽은 본문을 교체할 수 있다", async (basename, title) => {
+    const path = `test/${basename}.md`;
+    const original = `# ${title}\n\n기존 본문\n`;
+    const replacement = `# ${title}\n\n재작업한 본문\n`;
+    const app = makeApp(original, basename);
+    const executor = new ToolExecutor(app, makeIndexer(), () => "templates");
+
+    const readResult = await executor.execute("read_note", { path });
+    // 경로 안내와 실제 마크다운 본문을 분리한 뒤, 받은 본문 그대로 교체한다.
+    const header = TOOL_I18N.en.pathHeader(path, "");
+    const result = await executor.execute("edit_note", {
+      path,
+      find: readResult.replace(header, ""),
+      replace: replacement,
+    });
+
+    expect(isToolError(result)).toBe(false);
+    expect(readResult).toBe(header + original);
+    expect(app.vault.modify).toHaveBeenCalledWith(
+      expect.objectContaining({ path }),
+      replacement,
+    );
+  });
+});
 
 describe("editNote() replaceAll 동작", () => {
   let app: any;
@@ -96,6 +127,7 @@ describe("editNote() replaceAll 동작", () => {
       });
 
       expect(result).toContain(TOOL_I18N.en.findNotFound("존재하지않는텍스트"));
+      expect(result).toContain("read_note");
       expect(isToolError(result)).toBe(true);
       expect(app.vault.modify).not.toHaveBeenCalled();
     });

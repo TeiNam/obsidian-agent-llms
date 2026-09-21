@@ -71,7 +71,7 @@ export const TOOLS: ToolDefinition[] = [
   },
   {
     name: "read_note",
-    description: "특정 노트의 전체 내용을 읽습니다.",
+    description: "특정 노트의 전체 내용을 읽습니다. 첫 경로 안내 줄은 메타정보이며, 그 뒤 빈 줄부터 실제 본문입니다.",
     input_schema: {
       type: "object",
       properties: {
@@ -94,13 +94,13 @@ export const TOOLS: ToolDefinition[] = [
   },
   {
     name: "edit_note",
-    description: "기존 노트의 내용을 수정합니다. find/replace를 사용하면 find에 해당하는 모든 텍스트를 replace로 교체하고, content만 사용하면 전체를 덮어씁니다.",
+    description: "기존 노트의 내용을 수정합니다. 먼저 read_note로 원문을 읽고, 경로 안내를 제외한 본문에서 find를 정확히 복사하세요. find/replace는 일치하는 모든 텍스트를 교체하고, content만 사용하면 전체를 덮어씁니다. 불일치 시 같은 파일을 다시 읽고 재시도하세요.",
     input_schema: {
       type: "object",
       properties: {
         path: { type: "string", description: "수정할 파일 경로" },
         content: { type: "string", description: "전체 교체 시 새 내용 (find/replace 미사용 시)" },
-        find: { type: "string", description: "교체할 기존 텍스트 (부분 수정 시)" },
+        find: { type: "string", description: "실제 본문에서 줄바꿈·공백까지 정확히 복사한 기존 텍스트 (경로 안내·검색 발췌 제외)" },
         replace: { type: "string", description: "새로 바꿀 텍스트 (부분 수정 시)" },
       },
       required: ["path"],
@@ -130,7 +130,7 @@ export const TOOLS: ToolDefinition[] = [
   },
   {
     name: "get_active_note",
-    description: "현재 열려있는 노트의 경로와 내용을 반환합니다.",
+    description: "현재 열려있는 노트의 경로와 내용을 반환합니다. 첫 경로 안내 줄은 메타정보이며, 그 뒤 빈 줄부터 실제 본문입니다.",
     input_schema: {
       type: "object",
       properties: {},
@@ -621,7 +621,8 @@ export class ToolExecutor {
       return this.toolError(this.tt.notFound(path));
     }
     const content = await this.app.vault.cachedRead(file);
-    return `# ${file.basename}\n\n${content}`;
+    // 파일명을 마크다운 제목으로 붙이면 edit_note의 find에 가짜 원문이 섞인다.
+    return this.tt.pathHeader(file.path, content);
   }
 
   private async createNote(path: string, content: string): Promise<string> {
