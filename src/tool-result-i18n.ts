@@ -32,6 +32,7 @@ export const TOOL_I18N = {
     escapesVault: (tool: string, value: string) =>
       `${tool}: paths outside the vault are not allowed: ${value}`,
     unknownTool: (tool: string) => `Unknown tool: ${tool}`,
+    invalidArgs: (keys: string) => `Missing or non-string arguments: ${keys}. No changes were made.`,
 
     // ---- 검색 ----
     searchFilterInvalid: (problems: string) => `The search filter is not valid:\n- ${problems}`,
@@ -44,7 +45,7 @@ export const TOOL_I18N = {
 
     // ---- 노트 읽기·쓰기 ----
     noteCreated: (path: string) => `Note created: ${path}`,
-    notePatched: (path: string) => `Note partially updated: ${path}`,
+    notePatched: (path: string, count: number) => `Note partially updated: ${path} (${count} replaced)`,
     noteEdited: (path: string) => `Note updated: ${path}`,
     noteAppended: (path: string) => `Content appended: ${path}`,
     noteOpened: (path: string) => `Note opened: ${path}`,
@@ -52,6 +53,8 @@ export const TOOL_I18N = {
     findNotFound: (snippet: string) =>
       `Could not find the text to replace: "${snippet}..."\nNo changes were made. Read the same file again with read_note and copy find exactly from the body, excluding the path header and preserving whitespace and line breaks.`,
     editParamsRequired: "Either `content` or `find`/`replace` is required.",
+    findReplacePairRequired:
+      "`find` and `replace` must be given together. To replace the whole note, use `content` alone.",
     emptyFolder: "The folder is empty.",
     noActiveNote: "No note is currently open.",
     pathHeader: (path: string, content: string) => `Path: ${path}\n\n${content}`,
@@ -139,6 +142,7 @@ export const TOOL_I18N = {
     escapesVault: (tool: string, value: string) =>
       `${tool}: 볼트를 벗어나는 경로는 허용되지 않습니다: ${value}`,
     unknownTool: (tool: string) => `알 수 없는 도구: ${tool}`,
+    invalidArgs: (keys: string) => `인자가 없거나 문자열이 아닙니다: ${keys}. 아무것도 변경하지 않았습니다.`,
 
     searchFilterInvalid: (problems: string) => `검색 필터가 올바르지 않습니다:\n- ${problems}`,
     searchFailed: (reason: string) => `검색 실패: ${reason}`,
@@ -149,7 +153,7 @@ export const TOOL_I18N = {
       `검색 결과가 없습니다. 볼트 인덱싱이 필요할 수 있습니다.${staleWarning}`,
 
     noteCreated: (path: string) => `노트가 생성되었습니다: ${path}`,
-    notePatched: (path: string) => `노트가 부분 수정되었습니다: ${path}`,
+    notePatched: (path: string, count: number) => `노트가 부분 수정되었습니다: ${path} (${count}곳)`,
     noteEdited: (path: string) => `노트가 수정되었습니다: ${path}`,
     noteAppended: (path: string) => `내용이 추가되었습니다: ${path}`,
     noteOpened: (path: string) => `노트를 열었습니다: ${path}`,
@@ -157,6 +161,8 @@ export const TOOL_I18N = {
     findNotFound: (snippet: string) =>
       `교체 대상 텍스트를 찾을 수 없습니다: "${snippet}..."\n파일은 변경하지 않았습니다. read_note로 같은 파일을 다시 읽고, 경로 안내를 제외한 본문에서 공백·줄바꿈까지 정확히 복사한 find로 재시도하세요.`,
     editParamsRequired: "content 또는 find/replace 파라미터가 필요합니다.",
+    findReplacePairRequired:
+      "find와 replace는 함께 지정해야 합니다. 노트 전체를 바꾸려면 content만 사용하세요.",
     emptyFolder: "빈 폴더입니다.",
     noActiveNote: "현재 열려있는 노트가 없습니다.",
     pathHeader: (path: string, content: string) => `경로: ${path}\n\n${content}`,
@@ -239,6 +245,7 @@ export const TOOL_I18N = {
     escapesVault: (tool: string, value: string) =>
       `${tool}: ボルト外のパスは許可されていません: ${value}`,
     unknownTool: (tool: string) => `不明なツール: ${tool}`,
+    invalidArgs: (keys: string) => `引数がないか文字列ではありません: ${keys}。何も変更していません。`,
 
     searchFilterInvalid: (problems: string) => `検索フィルタが正しくありません:\n- ${problems}`,
     searchFailed: (reason: string) => `検索に失敗しました: ${reason}`,
@@ -249,7 +256,7 @@ export const TOOL_I18N = {
       `検索結果がありません。ボルトのインデックスが必要かもしれません。${staleWarning}`,
 
     noteCreated: (path: string) => `ノートを作成しました: ${path}`,
-    notePatched: (path: string) => `ノートを部分更新しました: ${path}`,
+    notePatched: (path: string, count: number) => `ノートを部分更新しました: ${path} (${count}箇所)`,
     noteEdited: (path: string) => `ノートを更新しました: ${path}`,
     noteAppended: (path: string) => `内容を追記しました: ${path}`,
     noteOpened: (path: string) => `ノートを開きました: ${path}`,
@@ -257,6 +264,8 @@ export const TOOL_I18N = {
     findNotFound: (snippet: string) =>
       `置換対象のテキストが見つかりません: "${snippet}..."\nファイルは変更していません。read_noteで同じファイルを読み直し、パス案内を除いた本文から空白・改行も含めて正確にコピーしたfindで再試行してください。`,
     editParamsRequired: "content または find/replace パラメータが必要です。",
+    findReplacePairRequired:
+      "find と replace は一緒に指定してください。ノート全体を置き換える場合は content のみを使用してください。",
     emptyFolder: "空のフォルダです。",
     noActiveNote: "現在開いているノートがありません。",
     pathHeader: (path: string, content: string) => `パス: ${path}\n\n${content}`,

@@ -14,19 +14,26 @@ import { TOOL_I18N } from "./tool-result-i18n";
  */
 
 // editNote 테스트용 App 모킹
-function makeApp(fileContent: string, basename = "note"): any {
+// process는 쓰기 직전에 다시 읽은 최신 본문(latest)에 fn을 적용한다. 쓴 내용은 두 편집
+// 모드를 같은 방식으로 검증하도록 modify 스파이에 모은다.
+function makeApp(fileContent: string, basename = "note", latest = fileContent): any {
   const mockFile = new TFile();
   mockFile.path = `test/${basename}.md`;
   mockFile.basename = basename;
 
-  return {
-    vault: {
-      getAbstractFileByPath: vi.fn((_path: string) => mockFile),
-      cachedRead: vi.fn(async () => fileContent),
-      read: vi.fn(async () => fileContent),
-      modify: vi.fn(async () => {}),
-    },
+  const vault = {
+    getAbstractFileByPath: vi.fn((_path: string) => mockFile),
+    cachedRead: vi.fn(async () => fileContent),
+    read: vi.fn(async () => fileContent),
+    modify: vi.fn(async () => {}),
+    process: vi.fn(async (file: TFile, fn: (data: string) => string) => {
+      const next = fn(latest);
+      await vault.modify(file, next);
+      return next;
+    }),
+    append: vi.fn(async () => {}),
   };
+  return { vault };
 }
 
 function makeIndexer(): any {
@@ -83,7 +90,7 @@ describe("editNote() replaceAll 동작", () => {
         replace: "DONE",
       });
 
-      expect(result).toContain(TOOL_I18N.en.notePatched(""));
+      expect(result).toBe(TOOL_I18N.en.notePatched("test/note.md", 3));
 
       // modify에 전달된 내용에서 모든 TODO가 DONE으로 교체되었는지 확인
       const modifiedContent = app.vault.modify.mock.calls[0][1] as string;
@@ -106,7 +113,7 @@ describe("editNote() replaceAll 동작", () => {
         replace: "최종본",
       });
 
-      expect(result).toContain(TOOL_I18N.en.notePatched(""));
+      expect(result).toBe(TOOL_I18N.en.notePatched("test/note.md", 1));
       const modifiedContent = app.vault.modify.mock.calls[0][1] as string;
       expect(modifiedContent).toBe("제목: 최종본\n본문 내용입니다.");
     });
@@ -148,10 +155,90 @@ describe("editNote() replaceAll 동작", () => {
         replace: "$5.00",
       });
 
-      expect(result).toContain(TOOL_I18N.en.notePatched(""));
+      expect(result).toBe(TOOL_I18N.en.notePatched("test/note.md", 2));
       const modifiedContent = app.vault.modify.mock.calls[0][1] as string;
       expect(modifiedContent).toBe("가격: $5.00 할인: $5.00");
     });
+  });
+});
+
+describe("editNote() 줄바꿈·동시 저장", () => {
+  it("CRLF 노트에서도 LF로 보낸 여러 줄 find를 찾고 줄바꿈을 CRLF로 유지한다", async () => {
+    const app = makeApp("# 제목\r\n첫 줄\r\n둘째 줄\r\n");
+    const executor = new ToolExecutor(app, makeIndexer(), () => "templates");
+
+    const result = await executor.execute("edit_note", {
+      path: "test/note.md",
+      find: "첫 줄\n둘째 줄",
+      replace: "새 줄\n다음 줄",
+    });
+
+    expect(result).toBe(TOOL_I18N.en.notePatched("test/note.md", 1));
+    expect(app.vault.modify).toHaveBeenCalledWith(expect.anything(), "# 제목\r\n새 줄\r\n다음 줄\r\n");
+  });
+
+  it("읽은 뒤 사용자가 저장한 내용을 덮어쓰지 않고 최신 본문에 적용한다", async () => {
+    const app = makeApp("- TODO 보고서\n", "note", "- TODO 보고서\n- 사용자가 방금 추가\n");
+    const executor = new ToolExecutor(app, makeIndexer(), () => "templates");
+
+    await executor.execute("edit_note", { path: "test/note.md", find: "TODO", replace: "DONE" });
+
+    expect(app.vault.modify).toHaveBeenCalledWith(
+      expect.anything(),
+      "- DONE 보고서\n- 사용자가 방금 추가\n",
+    );
+  });
+});
+
+describe("edit_note·append_to_note 입력 검증", () => {
+  it("find만 있고 replace 없이 content를 주면 노트 전체를 덮어쓰지 않고 거부한다", async () => {
+    const app = makeApp("# 제목\n\n긴 본문\n");
+    const executor = new ToolExecutor(app, makeIndexer(), () => "templates");
+
+    const result = await executor.execute("edit_note", {
+      path: "test/note.md",
+      find: "긴 본문",
+      content: "짧은 조각",
+    });
+
+    expect(result).toContain(TOOL_I18N.en.findReplacePairRequired);
+    expect(isToolError(result)).toBe(true);
+    expect(app.vault.modify).not.toHaveBeenCalled();
+  });
+
+  it("문자열 자리에 배열이 오면 거부해 빈 구분자 분할로 노트를 쪼개지 않는다", async () => {
+    const app = makeApp("abc");
+    const executor = new ToolExecutor(app, makeIndexer(), () => "templates");
+
+    const result = await executor.execute("edit_note", { path: "test/note.md", find: [], replace: "X" });
+
+    expect(result).toContain(TOOL_I18N.en.invalidArgs("find"));
+    expect(app.vault.modify).not.toHaveBeenCalled();
+  });
+
+  it("append_to_note에 content가 없으면 'undefined'를 붙이지 않고 거부한다", async () => {
+    const app = makeApp("abc");
+    const executor = new ToolExecutor(app, makeIndexer(), () => "templates");
+
+    const result = await executor.execute("append_to_note", { path: "test/note.md" });
+
+    expect(result).toContain(TOOL_I18N.en.invalidArgs("content"));
+    expect(app.vault.append).not.toHaveBeenCalled();
+  });
+
+  it("null 인자는 생략으로 보고 나머지 인자로 부분 수정한다", async () => {
+    const app = makeApp("초안");
+    const executor = new ToolExecutor(app, makeIndexer(), () => "templates");
+
+    const result = await executor.execute("edit_note", {
+      path: "test/note.md",
+      find: "초안",
+      replace: "최종본",
+      content: null,
+    });
+
+    expect(result).toBe(TOOL_I18N.en.notePatched("test/note.md", 1));
+    expect(app.vault.modify).toHaveBeenCalledWith(expect.anything(), "최종본");
   });
 });
 

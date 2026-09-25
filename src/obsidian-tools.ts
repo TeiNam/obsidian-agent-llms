@@ -25,7 +25,7 @@ import { runChallenge, runConnect, runEmerge } from "./second-brain/thinking-too
 // 볼트 경로 탈출 방지 가드 (normalizePath는 ".." 를 해석하지 않는다)
 import { ensureWithinFolder, escapesVault } from "./second-brain/vault-path-guard";
 import type { SecondBrainContext } from "./second-brain/scheduler";
-import { formatToolError } from "./tool-failure-tracker";
+import { formatToolError, isToolError } from "./tool-failure-tracker";
 import type { AiChangeLedger } from "./ai-change-ledger";
 
 // Obsidian 제어 도구 목록
@@ -71,7 +71,7 @@ export const TOOLS: ToolDefinition[] = [
   },
   {
     name: "read_note",
-    description: "특정 노트의 전체 내용을 읽습니다. 첫 경로 안내 줄은 메타정보이며, 그 뒤 빈 줄부터 실제 본문입니다.",
+    description: "특정 노트의 전체 내용을 읽습니다. 첫 줄의 경로 안내는 메타정보이며, 빈 줄 다음부터가 실제 본문입니다.",
     input_schema: {
       type: "object",
       properties: {
@@ -130,7 +130,7 @@ export const TOOLS: ToolDefinition[] = [
   },
   {
     name: "get_active_note",
-    description: "현재 열려있는 노트의 경로와 내용을 반환합니다. 첫 경로 안내 줄은 메타정보이며, 그 뒤 빈 줄부터 실제 본문입니다.",
+    description: "현재 열려있는 노트의 경로와 내용을 반환합니다. 첫 줄의 경로 안내는 메타정보이며, 빈 줄 다음부터가 실제 본문입니다.",
     input_schema: {
       type: "object",
       properties: {},
@@ -314,6 +314,43 @@ export const TOOLS: ToolDefinition[] = [
   },
 ];
 
+/**
+ * 스키마가 문자열로 정한 인자 중 빠졌거나(required) 문자열이 아닌 키를 찾는다.
+ *
+ * 모델 입력은 신뢰할 수 없다. 문자열 자리에 배열이 오면 `split([])`가 빈 구분자로 동작해
+ * 빈 find 가드를 우회하고 노트를 글자 단위로 쪼갠다. 빠진 content는 `"\n" + undefined`로
+ * 본문에 "undefined"를 남긴다. 문자열이 아닌 인자는 도구별 검증(normalizeSearchFilter 등)에 맡긴다.
+ */
+function invalidStringArgs(toolName: string, input: Record<string, unknown>): string[] {
+  const schema = TOOLS.find((tool) => tool.name === toolName)?.input_schema as
+    | { properties?: Record<string, { type?: string }>; required?: string[] }
+    | undefined;
+  const required = schema?.required ?? [];
+  return Object.entries(schema?.properties ?? {})
+    .filter(([, prop]) => prop.type === "string")
+    .map(([key]) => key)
+    .filter((key) =>
+      input[key] === undefined ? required.includes(key) : typeof input[key] !== "string"
+    );
+}
+
+/**
+ * 모델이 LF로 보낸 find/replace를 CRLF 노트의 줄바꿈에 맞춘다.
+ *
+ * 디스크 원문이 CRLF(Windows, git autocrlf)면 LF로 복사한 여러 줄 find가 한 번도 일치하지
+ * 않아, 불일치 안내대로 다시 읽고 재시도해도 계속 실패한다. find가 그대로 일치하면 건드리지
+ * 않는다 — 줄바꿈이 섞인 노트에서 원래 맞던 입력을 깨지 않기 위해서다.
+ */
+function matchLineEndings(
+  text: string,
+  find: string,
+  replace: string
+): { find: string; replace: string } {
+  if (!text.includes("\r\n")) return { find, replace };
+  const toCrlf = (value: string) => value.replace(/\r?\n/g, "\r\n");
+  return { find: text.includes(find) ? find : toCrlf(find), replace: toCrlf(replace) };
+}
+
 // 도구 실행기
 export class ToolExecutor {
   private app: App;
@@ -368,8 +405,16 @@ export class ToolExecutor {
     return formatToolError(message, this.getLocale?.());
   }
 
-  async execute(toolName: string, input: Record<string, unknown>): Promise<string> {
+  async execute(toolName: string, rawInput: Record<string, unknown>): Promise<string> {
     try {
+      // null은 생략으로 본다. 그대로 두면 `join(null)`처럼 문자열 연산에서 "null"이 본문에 들어간다.
+      const input = Object.fromEntries(
+        Object.entries(rawInput).filter(([, value]) => value !== null)
+      );
+      const invalid = invalidStringArgs(toolName, input);
+      if (invalid.length > 0) {
+        return this.toolError(this.tt.invalidArgs(invalid.join(", ")));
+      }
       // 모든 LLM 제공 경로를 공통 진입점에서 검증한다. normalizePath는 `..`를
       // 해석하지 않으므로 정규화 전에 탈출 입력을 거부해야 한다.
       const pathKeys = [
@@ -391,8 +436,9 @@ export class ToolExecutor {
       }
       const run = () => this.executeResolved(toolName, input);
       const paths = this.changePathsForTool(toolName, input);
+      // 실패 문자열을 돌려준 도구는 쓰기 전에 멈춘 것이다. 원장에 남기지 않는다.
       return this.changeLedger && paths.length > 0
-        ? await this.changeLedger.run(toolName, paths, run)
+        ? await this.changeLedger.run(toolName, paths, run, isToolError)
         : await run();
     } catch (error) {
       return formatToolError(`${toolName}: ${(error as Error).message}`);
@@ -652,21 +698,12 @@ export class ToolExecutor {
     }
 
     // 부분 수정 모드 (find/replace)
-    if (find !== undefined && replace !== undefined) {
-      // 빈 find는 거부한다. `"abc".includes("")`가 항상 true라 아래 가드를 통과하고,
-      // `split("").join(replace)`가 모든 문자 사이에 replace를 삽입해 노트를 파괴한다.
-      if (find === "") {
-        return this.toolError(this.tt.findEmpty);
+    if (find !== undefined || replace !== undefined) {
+      // 한쪽만 오면 거부한다. 아래 전체 교체로 떨어지면 content에 담긴 조각이 노트 전체를 대신한다.
+      if (find === undefined || replace === undefined) {
+        return this.toolError(this.tt.findReplacePairRequired);
       }
-      const current = await this.app.vault.read(file);
-      if (!current.includes(find)) {
-        return this.toolError(this.tt.findNotFound(find.substring(0, 50)));
-      }
-      // find에 해당하는 모든 텍스트를 교체 (사용자가 명시적으로 요청한 편집이므로 vault.modify 사용)
-      const updated = current.split(find).join(replace);
-      await this.app.vault.modify(file, updated);
-      new Notice(this.n.toolNotePatched(path));
-      return this.tt.notePatched(path);
+      return this.patchNote(file, path, find, replace);
     }
 
     // 전체 교체 모드
@@ -677,6 +714,26 @@ export class ToolExecutor {
     }
 
     return this.toolError(this.tt.editParamsRequired);
+  }
+
+  /** find와 일치하는 모든 텍스트를 replace로 바꾼다. */
+  private async patchNote(file: TFile, path: string, find: string, replace: string): Promise<string> {
+    // 빈 find는 거부한다. `"abc".includes("")`가 항상 true라 아래 가드를 통과하고,
+    // `split("").join(replace)`가 모든 문자 사이에 replace를 삽입해 노트를 파괴한다.
+    if (find === "") {
+      return this.toolError(this.tt.findEmpty);
+    }
+    const current = await this.app.vault.read(file);
+    const edit = matchLineEndings(current, find, replace);
+    const count = current.split(edit.find).length - 1;
+    if (count === 0) {
+      return this.toolError(this.tt.findNotFound(find.substring(0, 50)));
+    }
+    // 읽은 뒤 사용자가 저장했을 수 있다. process 안에서 다시 읽은 최신 본문에 적용해야
+    // 그 저장을 덮어쓰지 않는다.
+    await this.app.vault.process(file, (latest) => latest.split(edit.find).join(edit.replace));
+    new Notice(this.n.toolNotePatched(path));
+    return this.tt.notePatched(path, count);
   }
 
   private async appendToNote(path: string, content: string): Promise<string> {

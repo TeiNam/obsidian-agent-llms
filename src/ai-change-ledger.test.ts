@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { TFile, TFolder } from "obsidian";
 import { AI_CHANGE_LEDGER_LIMIT, AiChangeLedger } from "./ai-change-ledger";
 
@@ -136,5 +136,61 @@ describe("AiChangeLedger", () => {
 
     expect(ledger.list()).toHaveLength(AI_CHANGE_LEDGER_LIMIT);
     expect(ledger.list().at(-1)?.label).toBe("edit 4");
+  });
+
+  it("쓰기 전에 멈춘 결과는 그사이 사용자가 저장해도 AI 변경으로 기록하지 않는다", async () => {
+    const fs = makeApp({ "note.md": "before" });
+    const ledger = new AiChangeLedger(fs.app, ".ledger.json");
+
+    const result = await ledger.run(
+      "edit_note",
+      ["note.md"],
+      async () => {
+        fs.write("note.md", "user edit");
+        return "failed";
+      },
+      (value) => value === "failed",
+    );
+
+    expect(result).toBe("failed");
+    expect(ledger.list()).toHaveLength(0);
+  });
+
+  it("작업이 예외로 끝나면 부분 변경을 기록하고 원래 예외를 올린다", async () => {
+    const fs = makeApp({ "note.md": "before" });
+    const ledger = new AiChangeLedger(fs.app, ".ledger.json");
+
+    await expect(
+      ledger.run(
+        "move_file",
+        ["note.md"],
+        async () => {
+          fs.write("note.md", "partial");
+          throw new Error("boom");
+        },
+        () => true,
+      ),
+    ).rejects.toThrow("boom");
+    expect(ledger.list()).toHaveLength(1);
+  });
+
+  it("원장 저장이 실패해도 끝난 작업의 결과를 그대로 돌려준다", async () => {
+    const fs = makeApp({ "note.md": "before" });
+    fs.app.vault.adapter.write = async () => {
+      throw new Error("EACCES");
+    };
+    const ledger = new AiChangeLedger(fs.app, ".ledger.json");
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const result = await ledger.run("append_to_note", ["note.md"], async () => {
+      fs.write("note.md", "before\nadded");
+      return "appended";
+    });
+
+    expect(result).toBe("appended");
+    // 파일에 못 남겨도 메모리 기록은 유지해 이번 세션에서는 되돌릴 수 있다.
+    expect(ledger.list()).toHaveLength(1);
+    expect(logged).toHaveBeenCalled();
+    logged.mockRestore();
   });
 });

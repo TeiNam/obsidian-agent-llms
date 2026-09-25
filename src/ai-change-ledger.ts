@@ -155,28 +155,58 @@ export class AiChangeLedger {
     return [...this.records].reverse();
   }
 
-  async run<T>(label: string, paths: readonly string[], action: () => Promise<T>): Promise<T> {
+  /**
+   * @param isNoOp 결과가 "쓰기 전에 멈췄다"는 뜻이면 true. 그 결과는 기록하지 않는다 —
+   *   실행 중 사용자가 같은 파일을 저장하면 전후가 달라져 사용자 편집이 AI 변경으로 남고,
+   *   되돌리기가 그 편집을 지운다.
+   */
+  async run<T>(
+    label: string,
+    paths: readonly string[],
+    action: () => Promise<T>,
+    isNoOp?: (result: T) => boolean
+  ): Promise<T> {
     const roots = uniqueRoots(paths);
     if (roots.length === 0) return action();
 
     const before = await Promise.all(roots.map((path) => snapshotPath(this.app, path)));
+    let result: T;
     try {
-      return await action();
-    } finally {
-      // 작업이 실패해도 부분 변경은 남을 수 있으므로 성공 여부와 무관하게 원장에 기록한다.
-      // finally 로 두면 원래 예외가 그대로 호출부로 올라간다.
+      result = await action();
+    } catch (error) {
+      // 작업이 실패해도 부분 변경은 남을 수 있으므로 기록한 뒤 원래 예외를 올린다.
+      await this.record(label, roots, before);
+      throw error;
+    }
+    if (!isNoOp?.(result)) await this.record(label, roots, before);
+    return result;
+  }
+
+  /**
+   * 전후 스냅샷이 다르면 기록한다.
+   *
+   * 원장은 되돌리기용 보조 기록이라 여기서 난 오류는 로그만 남긴다. 던지면 이미 끝난 파일
+   * 작업이 실패로 보고되고, 모델이 재시도해 같은 내용을 두 번 추가한다.
+   */
+  private async record(
+    label: string,
+    roots: readonly string[],
+    before: AiPathSnapshot[]
+  ): Promise<void> {
+    try {
       const after = await Promise.all(roots.map((path) => snapshotPath(this.app, path)));
-      if (!sameSnapshots(before, after)) {
-        this.records.push({
-          id: window.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`,
-          label,
-          createdAt: Date.now(),
-          before,
-          after,
-        });
-        this.records = this.records.slice(-AI_CHANGE_LEDGER_LIMIT);
-        await this.persist();
-      }
+      if (sameSnapshots(before, after)) return;
+      const record: AiChangeRecord = {
+        id: window.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`,
+        label,
+        createdAt: Date.now(),
+        before,
+        after,
+      };
+      this.records = [...this.records, record].slice(-AI_CHANGE_LEDGER_LIMIT);
+      await this.persist();
+    } catch (error) {
+      console.error("AI 변경 원장 기록 실패:", error);
     }
   }
 
