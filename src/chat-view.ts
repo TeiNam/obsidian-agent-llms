@@ -7,7 +7,11 @@ import { trimConversationHistory, CHARS_PER_TOKEN } from "./token-trimmer";
 import { isToolError, updateToolFailureState, type ToolFailureState } from "./tool-failure-tracker";
 import { prepareRegeneration } from "./regenerate-helper";
 import { needsToolConfirmation } from "./tool-confirm-utils";
-import { isAllowedTextExtension } from "./file-extension-utils";
+import {
+  ALLOWED_TEXT_EXTENSIONS,
+  isAllowedTextExtension,
+  TEXT_ATTACHMENT_MAX_CHARS,
+} from "./file-extension-utils";
 import { WebClipperModal } from "./web-clipper";
 import { VIEW_I18N, type ViewLang } from "./chat-view-i18n";
 // 모델 변경 시 effort 허용 집합 보정에 사용
@@ -16,6 +20,7 @@ import {
   supportsAttachmentFormat,
   attachmentKindOf,
   backendsSupportingFormat,
+  BINARY_ATTACHMENT_EXTENSIONS,
 } from "./provider-utils";
 import {
   citationMatchesPath,
@@ -234,7 +239,7 @@ export class ChatView extends ItemView {
     setIcon(searchBtn, "search");
     this.uiEvents.registerDomEvent(searchBtn, "click", () => this.openFileSearchModal());
 
-    // 파일 첨부 버튼 (이미지, PDF, XLSX 등)
+    // 파일 첨부 버튼 (md·txt 같은 텍스트, 이미지, PDF, XLSX 등)
     const clipBtn = toolbarLeft.createDiv({ cls: "ba-toolbar-btn", attr: { "aria-label": this.t.attachFile } });
     setIcon(clipBtn, "paperclip");
     this.uiEvents.registerDomEvent(clipBtn, "click", () => this.openBinaryFileAttach());
@@ -1126,6 +1131,18 @@ export class ChatView extends ItemView {
         const basename = path.split("/").pop() || path;
         chip.createSpan({ cls: "ba-file-chip-name", text: basename });
 
+        // 프롬프트에 앞부분만 들어가는 첨부는 칩에서도 알린다.
+        const text = this.attachedFiles.get(path);
+        if (text !== undefined && text.length > TEXT_ATTACHMENT_MAX_CHARS) {
+          const truncatedEl = chip.createDiv({
+            cls: "ba-file-chip-icon",
+            attr: {
+              "aria-label": this.t.attachmentTruncatedChip(TEXT_ATTACHMENT_MAX_CHARS, text.length),
+            },
+          });
+          setIcon(truncatedEl, "scissors");
+        }
+
         const removeBtn = chip.createDiv({ cls: "ba-file-chip-remove", text: "×" });
         removeBtn.addEventListener("click", (e) => {
           e.stopPropagation();
@@ -1239,7 +1256,11 @@ export class ChatView extends ItemView {
       const label = path === this.autoAttachedPath
         ? this.t.activeNoteLabel(path)
         : this.t.attachedFileLabel(path);
-      parts.push(`${label}\n${content.slice(0, 8000)}`);
+      // 한도를 넘으면 앞부분만 보낸다. 잘린 사실을 적지 않으면 모델은 전체를 본 것처럼 답한다.
+      const truncatedNote = content.length > TEXT_ATTACHMENT_MAX_CHARS
+        ? `\n${this.t.attachmentTruncated(TEXT_ATTACHMENT_MAX_CHARS, content.length)}`
+        : "";
+      parts.push(`${label}\n${content.slice(0, TEXT_ATTACHMENT_MAX_CHARS)}${truncatedNote}`);
     }
 
     if (parts.length === 0) return "";
@@ -1401,12 +1422,15 @@ export class ChatView extends ItemView {
     }
 
   // 모델 목록 캐시 새로고침
-  // 바이너리 파일 첨부 (이미지, PDF, XLSX 등)
+  // 파일 첨부 (md·txt 같은 텍스트, 이미지, PDF, XLSX 등)
   // 로컬 디바이스에서 파일 첨부 (네이티브 파일 선택)
     private openBinaryFileAttach(): void {
       const input = createEl("input");
       input.type = "file";
-      input.accept = ".png,.jpg,.jpeg,.gif,.webp,.pdf,.csv,.doc,.docx,.xls,.xlsx,.html,.txt";
+      // addLocalFile이 받는 형식과 같은 목록이어야 선택창에서 파일이 보인다.
+      input.accept = [...BINARY_ATTACHMENT_EXTENSIONS, ...ALLOWED_TEXT_EXTENSIONS]
+        .map((ext) => `.${ext}`)
+        .join(",");
       input.multiple = true;
       input.addEventListener("change", voidAsync(async () => {
         if (!input.files) return;
@@ -1421,11 +1445,12 @@ export class ChatView extends ItemView {
     private async addLocalFile(file: File): Promise<void> {
       const ext = file.name.split(".").pop()?.toLowerCase() || "";
       // 텍스트로 읽어 프롬프트에 인라인하는 형식 — 모든 백엔드에서 동작한다.
-      const textExts = ["txt", "csv", "html"];
+      // 볼트 노트 첨부(addFileContext)와 같은 목록을 쓴다.
+      const isText = isAllowedTextExtension(ext);
       // 바이너리로 전달하는 형식 목록은 provider-utils가 단일 출처로 갖고 있다.
       const isBinary = attachmentKindOf(ext) !== null;
 
-      if (!textExts.includes(ext) && !isBinary) {
+      if (!isText && !isBinary) {
         new Notice(this.t.unsupportedExt(ext));
         return;
       }
@@ -1440,7 +1465,7 @@ export class ChatView extends ItemView {
         return;
       }
 
-      if (textExts.includes(ext)) {
+      if (isText) {
         const text = await file.text();
         this.attachedFiles.set(file.name, text);
       } else {
@@ -1585,7 +1610,7 @@ export class ChatView extends ItemView {
 
       // 텍스트 첨부 파일
       for (const content of this.attachedFiles.values()) {
-        totalChars += Math.min(content.length, 8000);
+        totalChars += Math.min(content.length, TEXT_ATTACHMENT_MAX_CHARS);
       }
 
       // 바이너리 첨부 파일 (이미지: ~765토큰, 문서: 바이트/3 추정)

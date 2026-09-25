@@ -320,6 +320,12 @@ const DOCUMENT_FORMATS: Record<string, string> = {
 	xlsx: "xlsx",
 };
 
+/** 바이너리로 첨부할 수 있는 확장자 전체. 파일 선택창의 accept 목록에 쓴다. */
+export const BINARY_ATTACHMENT_EXTENSIONS: readonly string[] = [
+	...Object.keys(IMAGE_FORMATS),
+	...Object.keys(DOCUMENT_FORMATS),
+];
+
 /** 확장자의 첨부 종류를 판정한다. 바이너리 첨부가 아니면 null. */
 export function attachmentKindOf(ext: string): AttachmentKind | null {
 	const e = (ext ?? "").toLowerCase();

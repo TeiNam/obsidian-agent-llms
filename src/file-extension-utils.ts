@@ -6,6 +6,9 @@ export const ALLOWED_TEXT_EXTENSIONS: string[] = [
   'md', 'txt', 'json', 'yaml', 'yml', 'csv', 'xml', 'html', 'css', 'js', 'ts',
 ];
 
+/** 텍스트 첨부를 프롬프트에 넣을 때 파일마다 보내는 최대 글자 수 */
+export const TEXT_ATTACHMENT_MAX_CHARS = 8000;
+
 /** 볼트에 영구 저장해 RAG 검색 대상으로 삼는 텍스트 확장자 */
 export const INDEXABLE_TEXT_EXTENSIONS: string[] = [
   'md', 'txt', 'csv', 'json', 'html',

@@ -1,4 +1,8 @@
 // 채팅 뷰 다국어 레이블 (chat-view.ts에서 분리)
+
+/** 글자 수를 천 단위로 끊어 표기한다. 세 언어 모두 쉼표를 쓴다. */
+const formatCount = (value: number): string => value.toLocaleString("en-US");
+
 export const VIEW_I18N = {
   en: {
     indexVault: "Index vault",
@@ -82,6 +86,10 @@ export const VIEW_I18N = {
         : `The ${backend} backend cannot forward .${ext} attachments — it would be dropped silently. Backends that can: ${supported}.`,
     binaryDropped: (names: string) =>
       `Not sent: ${names}. The current backend cannot forward image or document attachments.`,
+    attachmentTruncated: (shown: number, total: number) =>
+      `[Truncated: only the first ${formatCount(shown)} of ${formatCount(total)} characters of this file were attached. If the answer may depend on the rest, say so.]`,
+    attachmentTruncatedChip: (shown: number, total: number) =>
+      `Only the first ${formatCount(shown)} of ${formatCount(total)} characters are sent`,
     citationsUnresolved: (targets: string) =>
       `Cited notes not found in your vault: ${targets}. Verify these before trusting the answer.`,
     reconcileReviewTitle: "Review contradictions",
@@ -267,6 +275,10 @@ ${content}`,
         : `${backend} 백엔드는 .${ext} 첨부를 전달할 수 없어 조용히 버려집니다. 전달 가능한 백엔드: ${supported}.`,
     binaryDropped: (names: string) =>
       `전송하지 않았습니다: ${names}. 현재 백엔드는 이미지·문서 첨부를 전달할 수 없습니다.`,
+    attachmentTruncated: (shown: number, total: number) =>
+      `[잘림: 이 파일은 전체 ${formatCount(total)}자 중 앞 ${formatCount(shown)}자만 첨부했습니다. 뒷부분에 따라 답이 달라질 수 있으면 그 점을 밝히세요.]`,
+    attachmentTruncatedChip: (shown: number, total: number) =>
+      `전체 ${formatCount(total)}자 중 앞 ${formatCount(shown)}자만 보냅니다`,
     citationsUnresolved: (targets: string) =>
       `볼트에서 찾을 수 없는 인용입니다: ${targets}. 답변을 신뢰하기 전에 확인하세요.`,
     reconcileReviewTitle: "모순 검토 및 반영",
@@ -452,6 +464,10 @@ ${content}`,
         : `${backend}バックエンドは.${ext}の添付を転送できず、黙って破棄されます。転送可能なバックエンド: ${supported}。`,
     binaryDropped: (names: string) =>
       `送信しませんでした: ${names}。現在のバックエンドは画像・文書の添付を転送できません。`,
+    attachmentTruncated: (shown: number, total: number) =>
+      `[切り詰め: このファイルは全${formatCount(total)}文字のうち先頭${formatCount(shown)}文字のみ添付しました。残りの部分で回答が変わり得る場合は、その旨を明記してください。]`,
+    attachmentTruncatedChip: (shown: number, total: number) =>
+      `全${formatCount(total)}文字のうち先頭${formatCount(shown)}文字のみ送信します`,
     citationsUnresolved: (targets: string) =>
       `ボルト内に見つからない引用です: ${targets}。回答を信頼する前に確認してください。`,
     reconcileReviewTitle: "矛盾のレビューと反映",
