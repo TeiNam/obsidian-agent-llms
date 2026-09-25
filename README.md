@@ -12,7 +12,7 @@
 
 [English](README.md) | [한국어](README-KR.md) | [日本語](README-JA.md)
 
-This documentation describes **0.7.12**. See the [changelog](CHANGELOG.md) for version history.
+This documentation describes **0.7.14**. See the [changelog](CHANGELOG.md) for version history.
 
 An AI assistant sidebar plugin for Obsidian with multi-provider backend support — AWS Bedrock, Google Gemini, OpenAI, and Ollama.
 
@@ -50,7 +50,7 @@ An AI assistant sidebar plugin for Obsidian with multi-provider backend support 
 - **MCP Server Integration** — Model Context Protocol servers (uvx, Docker)
 - **File Management** — Create, edit, move, and delete notes through AI
 - **Multilingual UI** — English, 한국어, 日本語. Settings, sidebar, command palette, notices, status bar, tool results, and error messages all follow your choice
-- **File Attachments** — Drag-and-drop, clipboard, file search. Images work on all four backends; PDFs on Bedrock and Gemini; Office documents on Bedrock. Unsupported combinations are refused with the list of backends that can handle the format, rather than dropped silently
+- **File Attachments** — Drag-and-drop, clipboard, file search. Text files such as `.md` and `.txt` work on all four backends; each sends up to its first 8,000 characters, and a cut is marked in the prompt and on the file chip. Images work on all four backends; PDFs on Bedrock and Gemini; Office documents on Bedrock. Unsupported combinations are refused with the list of backends that can handle the format, rather than dropped silently
 - **Chat Session History** — Save and restore past conversations
 - **Obsidian Skills** — Six built-in knowledge modules: `obsidian-markdown`, `obsidian-bases`, `json-canvas`, `korean-writing`, `business-english-writing`, `second-brain`
 - **Chat Retrospective** — Type "회고", "retrospective", or "振り返り" in chat to auto-generate a daily retrospective, chained with the retrospective sections of the last 7 days so recurring problems stay visible
@@ -146,7 +146,7 @@ Type a message in the input area and press Enter. The AI responds in real-time s
 
 - 📎 Attach current note
 - 🔍 Search and attach any file
-- 📁 Attach images/PDFs via file picker, drag-and-drop, or clipboard paste
+- 📁 Attach text files (`.md`, `.txt`, …), images, and PDFs from your computer via file picker, drag-and-drop onto the input area, or clipboard paste
 
 The web search toggle (globe icon) in the input toolbar only turns on if a search MCP (`fetch`, `exa`, or `brave`) is configured, or if you are on the Gemini backend, which has native Google Search grounding. Otherwise clicking it shows a notice and the toggle stays off.
 
@@ -238,10 +238,10 @@ These capabilities support the features below. MCP servers have their own access
 - **Process execution** (`child_process.spawn`) — Saved MCP commands run on startup or reconnection with `shell: false`. The plugin does not insert a shell, but it does not sandbox the command or scripts supplied as arguments. No server configuration means no server process. A direct child that remains alive three seconds after stopping receives a force-kill signal.
 - **Filesystem access outside the vault** (Node `fs`) — AI backend keys are encrypted in `agent-llms-credentials.json` under Electron's `userData` directory. A complete temporary file with mode `0600` replaces the destination; legacy credential files are copied within the same directory. Encryption/write failures preserve the previous file and show a notice. Legacy keys in `data.json` are removed only after local storage succeeds. Newly entered keys remain in memory if saving fails; resolve the issue and save again before restarting. MCP executable lookup uses Node's `spawn` and `PATH`.
 - **Environment variables** — Only `PATH`, `HOME`, `USERPROFILE`, `APPDATA`, `LOCALAPPDATA`, `SYSTEMROOT`, `SYSTEMDRIVE`, `COMSPEC`, `PATHEXT`, `TMPDIR`, `TMP`, `TEMP`, `LANG`, `LC_ALL`, and `LC_CTYPE` are inherited by default. Per-server `env` overrides are then applied. Other tokens and runtime options are not passed automatically. A server controls how it uses or transmits values explicitly provided to it.
-- **Vault enumeration** — Search, Graph RAG indexing, Second Brain, and file selection use Obsidian's file-list APIs. Indexing splits notes and supported text attachments into chunks and **sends them to the configured embedding API**. Attached notes and tool-read content can also enter model requests. Remote endpoints receive this content; local Ollama keeps these requests on the device.
+- **Vault enumeration** — Search, Graph RAG indexing, Second Brain, and file selection use Obsidian's file-list APIs. Indexing splits notes and supported text attachments into chunks and **sends them to the configured embedding API**. Attached files and notes, and tool-read content, can also enter model requests. Remote endpoints receive this content; local Ollama keeps these requests on the device.
 - **Clipboard** — Written when you press a message's copy button and read when you paste into chat. Success appears only after the write completes; failures show a notice.
 
-See the [0.7.12 review record (Korean)](docs/review-0.7.12.md) for changes and validation scope.
+See the [0.7.14 review record (Korean)](docs/review-0.7.14.md) for changes and validation scope.
 
 ### Verifying a release
 
