@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { formatToolError, isToolError, updateFailureCount } from "./tool-failure-tracker";
+import {
+  formatToolError,
+  isToolError,
+  updateFailureCount,
+  updateToolFailureState,
+  type ToolFailureState,
+} from "./tool-failure-tracker";
 
 describe("isToolError", () => {
   it("영어 에러 접두사를 감지한다", () => {
@@ -121,5 +127,51 @@ describe("도구 실패 판별의 언어 독립성", () => {
     for (const locale of LOCALES) {
       expect(isToolError(`Note created: a.md (${locale})`)).toBe(false);
     }
+  });
+});
+
+describe("updateToolFailureState", () => {
+  const fail = formatToolError("not found");
+  const ok = "Path: a.md\n\nbody";
+  const start: ToolFailureState = { consecutive: 0, byTool: {} };
+
+  /** 도구 결과를 차례로 넣고 각 단계의 중단 여부를 모은다. */
+  function run(steps: [string, string][]): boolean[] {
+    const stops: boolean[] = [];
+    let state = start;
+    for (const [tool, result] of steps) {
+      const next = updateToolFailureState(state, tool, result);
+      state = next.state;
+      stops.push(next.shouldStop);
+    }
+    return stops;
+  }
+
+  it("다른 도구의 성공이 끼어도 같은 도구가 세 번 실패하면 중단한다", () => {
+    // edit_note 불일치 → read_note 재독 → 재시도가 반복되는 경로
+    expect(
+      run([
+        ["edit_note", fail],
+        ["read_note", ok],
+        ["edit_note", fail],
+        ["read_note", ok],
+        ["edit_note", fail],
+      ])
+    ).toEqual([false, false, false, false, true]);
+  });
+
+  it("같은 도구가 성공하면 그 도구의 실패 횟수를 초기화한다", () => {
+    expect(
+      run([
+        ["edit_note", fail],
+        ["edit_note", fail],
+        ["edit_note", ok],
+        ["edit_note", fail],
+      ])
+    ).toEqual([false, false, false, false]);
+  });
+
+  it("서로 다른 도구라도 연속으로 세 번 실패하면 중단한다", () => {
+    expect(run([["a", fail], ["b", fail], ["c", fail]])).toEqual([false, false, true]);
   });
 });

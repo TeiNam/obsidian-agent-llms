@@ -59,3 +59,33 @@ export function updateFailureCount(
   // 성공 시 카운터 리셋
   return { count: 0, shouldStop: false };
 }
+
+/** 도구 루프의 실패 상태. 전체 연속 실패와 도구별 실패를 함께 센다. */
+export interface ToolFailureState {
+  consecutive: number;
+  byTool: Readonly<Record<string, number>>;
+}
+
+/**
+ * 실패 상태를 갱신하고 중단 여부를 반환한다.
+ *
+ * 연속 실패만 세면 사이에 낀 다른 도구의 성공이 카운터를 되돌린다. edit_note 불일치 안내가
+ * "read_note로 다시 읽고 재시도"를 권하므로, read_note 성공과 edit_note 실패가 번갈아 나오면
+ * 같은 편집이 라운드 한도까지 반복된다. 도구별 실패는 그 도구가 성공해야만 초기화한다.
+ */
+export function updateToolFailureState(
+  state: ToolFailureState,
+  toolName: string,
+  toolResult: string,
+  maxFailures = 3
+): { state: ToolFailureState; shouldStop: boolean } {
+  const consecutive = updateFailureCount(state.consecutive, toolResult, maxFailures);
+  const tool = updateFailureCount(state.byTool[toolName] ?? 0, toolResult, maxFailures);
+  return {
+    state: {
+      consecutive: consecutive.count,
+      byTool: { ...state.byTool, [toolName]: tool.count },
+    },
+    shouldStop: consecutive.shouldStop || tool.shouldStop,
+  };
+}

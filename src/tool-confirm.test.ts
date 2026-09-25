@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { DESTRUCTIVE_TOOLS, needsToolConfirmation } from "./tool-confirm-utils";
+import { ToolExecutor, TOOLS } from "./obsidian-tools";
 
 /**
  * ToolConfirmModal 연동 테스트
@@ -18,8 +19,33 @@ import { DESTRUCTIVE_TOOLS, needsToolConfirmation } from "./tool-confirm-utils";
 // --- DESTRUCTIVE_TOOLS 상수 검증 ---
 
 describe("DESTRUCTIVE_TOOLS 상수", () => {
-  it("기본 파일 도구 5개 + Second Brain 쓰기 도구 4개가 정의되어 있다", () => {
-    expect(DESTRUCTIVE_TOOLS).toHaveLength(9);
+  it("기본 파일 도구 5개 + 템플릿 도구 2개 + Second Brain 쓰기 도구 4개가 정의되어 있다", () => {
+    expect(DESTRUCTIVE_TOOLS).toHaveLength(11);
+  });
+
+  it("AI 변경 원장이 되돌리기용으로 기록하는 도구는 모두 확인 대상이다", () => {
+    // 두 목록은 따로 관리된다. 원장에만 넣으면 확인 설정을 켜도 그 도구가 승인 없이 파일을 바꾼다.
+    const executor = new ToolExecutor(
+      {} as any,
+      {} as any,
+      () => "templates",
+      () => ({ wikiFolder: "wiki" }) as any,
+    );
+    const input = {
+      path: "a.md",
+      source_path: "a.md",
+      destination_path: "b.md",
+      output_path: "c.md",
+      name: "t",
+      topic: "t",
+      title: "t",
+    };
+    const tracked = TOOLS.map((tool) => tool.name).filter(
+      (name) => executor["changePathsForTool"](name, input).length > 0,
+    );
+
+    expect(tracked).toContain("save_template");
+    expect(tracked.filter((name) => !DESTRUCTIVE_TOOLS.includes(name))).toEqual([]);
   });
 
   it("볼트에 쓰기를 수행하는 Second Brain 도구가 모두 포함되어 있다", () => {

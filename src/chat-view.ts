@@ -4,7 +4,7 @@ import type { ChatMessage, ConverseMessage, ContentBlockToolUse, ModelInfo, Chat
 import { TOOLS } from "./obsidian-tools";
 import { BRANDING } from "./branding";
 import { trimConversationHistory, CHARS_PER_TOKEN } from "./token-trimmer";
-import { isToolError } from "./tool-failure-tracker";
+import { isToolError, updateToolFailureState, type ToolFailureState } from "./tool-failure-tracker";
 import { prepareRegeneration } from "./regenerate-helper";
 import { needsToolConfirmation } from "./tool-confirm-utils";
 import { isAllowedTextExtension } from "./file-extension-utils";
@@ -676,8 +676,9 @@ export class ChatView extends ItemView {
       }
 
       const MAX_TOOL_ROUNDS = 10; // 무한 루프 방지
-      const MAX_CONSECUTIVE_FAILURES = 3; // 연속 실패 허용 횟수
-      let consecutiveFailures = 0; // 연속 실패 카운터
+      const MAX_TOOL_FAILURES = 3; // 연속 또는 같은 도구의 실패 허용 횟수
+      let failures: ToolFailureState = { consecutive: 0, byTool: {} };
+      let stopForFailures = false;
       let fullText = "";
 
       // 옵시디언 내장 도구 + MCP 도구 합치기
@@ -688,7 +689,8 @@ export class ChatView extends ItemView {
       this.trimMessages(converseMessages, allTools);
 
       try {
-        for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
+        let round = 0;
+        for (; round < MAX_TOOL_ROUNDS; round++) {
           if (this.abortController?.signal.aborted) break;
 
           // 텍스트 스트리밍 렌더링용
@@ -787,13 +789,15 @@ export class ChatView extends ItemView {
 
             const toolResult = await this.executeAndRenderTool(toolBlock, contentEl);
 
-            // 연속 실패 카운터 관리: 에러 문자열 접두사로 실패 여부 판별
-            if (isToolError(toolResult)) {
-              consecutiveFailures++;
-            } else {
-              // 성공 시 카운터 리셋
-              consecutiveFailures = 0;
-            }
+            // 실패 카운터 관리: 에러 문자열 접두사로 실패 여부 판별
+            const tracked = updateToolFailureState(
+              failures,
+              toolBlock.name,
+              toolResult,
+              MAX_TOOL_FAILURES
+            );
+            failures = tracked.state;
+            stopForFailures = tracked.shouldStop;
 
             toolResultContents.push({
               toolResult: {
@@ -803,14 +807,14 @@ export class ChatView extends ItemView {
               },
             });
 
-            // 연속 실패 횟수 초과 시 루프 조기 중단
-            if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+            // 실패 한도 초과 시 루프 조기 중단
+            if (stopForFailures) {
               break;
             }
           }
 
-          // 연속 실패 횟수 초과 시 전체 도구 루프 중단 + 사용자 안내
-          if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+          // 실패 한도 초과 시 전체 도구 루프 중단 + 사용자 안내
+          if (stopForFailures) {
             contentEl.createDiv({
               cls: "ba-error",
               text: this.t.toolConsecutiveFailures,
@@ -824,6 +828,13 @@ export class ChatView extends ItemView {
 
           // 다음 라운드 전 "생각 중..." 표시
           contentEl.createSpan({ cls: "ba-thinking", text: this.t.thinking });
+          this.scrollToBottom();
+        }
+
+        // 라운드 한도에 걸리면 모델이 마지막 도구 결과를 보지 못한 채 끝난다. 알리지 않으면
+        // 사용자는 작업이 중간에 멈췄는지 알 수 없다.
+        if (round === MAX_TOOL_ROUNDS && !this.abortController?.signal.aborted) {
+          contentEl.createDiv({ cls: "ba-error", text: this.t.toolRoundLimit(MAX_TOOL_ROUNDS) });
           this.scrollToBottom();
         }
 
@@ -860,7 +871,6 @@ export class ChatView extends ItemView {
         // 대화 히스토리 영속화
         this.persistHistory();
       } catch (error) {
-        if (thinkingEl.parentElement) thinkingEl.remove();
         // 사용자가 중단한 경우 에러 표시 안 함
         if (this.abortController?.signal.aborted) {
           // 중단 시점까지의 텍스트는 유지
@@ -872,6 +882,9 @@ export class ChatView extends ItemView {
         }
       }
 
+      // 라운드 끝에 만든 "생각 중..." 표시는 다음 라운드의 텍스트가 와야 지워진다.
+      // 한도·중단·오류로 끝나면 남으므로 어떤 경로로 끝나든 여기서 지운다.
+      contentEl.querySelectorAll(".ba-thinking").forEach((el) => el.remove());
       this.setGenerating(false);
     }
 

@@ -14,6 +14,9 @@ export const DESTRUCTIVE_TOOLS = [
   'delete_file',
   'move_file',
   'append_to_note',
+  // 템플릿 도구 — 기존 템플릿을 덮어쓰거나 템플릿으로 새 노트를 만든다
+  'save_template',
+  'apply_template',
   // Second Brain 쓰기 도구 — 위키 노트를 생성·수정한다
   'create_wiki_note',
   'update_index',
