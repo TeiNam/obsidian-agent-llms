@@ -1,5 +1,7 @@
 // obsidian 패키지 테스트용 모킹
 // Obsidian API는 앱 내에서만 사용 가능하므로 테스트 환경에서는 최소한의 스텁 제공
+export const Platform = { isMobileApp: false, isDesktopApp: true };
+export function requireApiVersion(_version: string): boolean { return true; }
 
 export class Notice {
   constructor(_message: string) {

@@ -2,17 +2,19 @@
 
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.4-blue.svg)
 ![Obsidian](https://img.shields.io/badge/Obsidian-1.7.2%2B-7C3AED.svg)
+![Platforms](https://img.shields.io/badge/Platforms-Desktop%20%7C%20Mobile-blue.svg)
 ![AWS Bedrock](https://img.shields.io/badge/AWS-Bedrock-FF9900.svg)
 ![Google Gemini](https://img.shields.io/badge/Google-Gemini-4285F4.svg)
 ![OpenAI](https://img.shields.io/badge/OpenAI-GPT-412991.svg)
 ![Ollama](https://img.shields.io/badge/Ollama-Local-000000.svg)
+![GitHub Actions](https://img.shields.io/badge/GitHub_Actions-CI%20%2B%20Release-2088FF.svg)
 ![License](https://img.shields.io/badge/License-MIT-green.svg)
 
 [![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-FFDD00?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/teinam)
 
 [English](README.md) | [한국어](README-KR.md) | [日本語](README-JA.md)
 
-이 문서는 **0.7.14** 기준입니다. 버전별 변경 사항은 [변경 이력](CHANGELOG.md)을 참고하세요.
+이 문서는 **0.7.15** 기준입니다. 버전별 변경 사항은 [변경 이력](CHANGELOG.md)을 참고하세요.
 
 Obsidian용 AI 어시스턴트 사이드바 플러그인. AWS Bedrock, Google Gemini, OpenAI, Ollama 멀티프로바이더 백엔드를 지원합니다.
 
@@ -47,7 +49,7 @@ Obsidian용 AI 어시스턴트 사이드바 플러그인. AWS Bedrock, Google Ge
 - **아카이브 정리** — 설정 탭에서 오래된 아카이브 파일 정리
 - **P.A.R.A 정리** — P.A.R.A 폴더 구조(Projects, Areas, Resources, Archives) 생성 및 기존 노트 AI 분류
 - **웹 클리퍼** — 웹 페이지를 마크다운 노트로 가져오기, 번역, 요약
-- **MCP 서버 통합** — Model Context Protocol 서버(uvx, Docker)
+- **MCP 서버 통합 (PC 전용)** — Model Context Protocol 서버(uvx, Docker)
 - **파일 관리** — AI를 통한 노트 생성, 편집, 이동, 삭제
 - **다국어 UI** — English, 한국어, 日本語. 설정·사이드바·명령 팔레트·알림·상태바·도구 실행 결과·오류 메시지가 모두 선택한 언어를 따릅니다
 - **파일 첨부** — 드래그앤드롭, 클립보드, 파일 검색. `.md`·`.txt` 같은 텍스트 파일은 네 백엔드 모두에서 동작하며, 파일마다 앞 8,000자까지 보내고 잘리면 프롬프트와 파일 칩에 표시합니다. 이미지는 네 백엔드 모두, PDF는 Bedrock·Gemini, Office 문서는 Bedrock에서 동작합니다. 지원하지 않는 조합은 조용히 버리지 않고 그 형식을 처리할 수 있는 백엔드 목록과 함께 거절합니다
@@ -63,7 +65,7 @@ Obsidian용 AI 어시스턴트 사이드바 플러그인. AWS Bedrock, Google Ge
 
 ## 설치
 
-옵시디언 1.7.2 이상, 데스크톱 환경이 필요합니다.
+옵시디언 1.7.2 이상에서 PC·휴대폰·태블릿을 지원합니다. 모바일 API 키 저장에는 **1.11.4 이상**이 필요하며, 구버전에서는 새 키가 현재 세션에만 유지됩니다.
 
 Obsidian 1.13 이상의 설정 검색에서 현재 백엔드에 표시되는 설정을 찾을 수 있습니다. 이전 Obsidian에서는 기존 설정 화면을 사용합니다.
 
@@ -128,13 +130,13 @@ Obsidian 1.13 이상의 설정 검색에서 현재 백엔드에 표시되는 설
 
 **Ollama:** 서버 base URL 입력. 비워두면 `http://localhost:11434` 사용. API 키 불필요
 
-> **키 보관:** 로컬 저장에 성공한 키는 OS 키체인으로 암호화되며 볼트 동기화에 포함되지 않습니다. 각 기기에서 별도로 설정해야 합니다.
+> **키 보관:** PC는 OS 키체인 기반 로컬 파일, 모바일은 Obsidian SecretStorage에 저장합니다. 새 키는 볼트의 `data.json`에 기록하지 않으며, 각 기기에서 별도로 입력해야 합니다.
 
-암호화나 파일 저장에 실패하면 알림을 표시하고 기존 자격증명 파일을 보존합니다. 이전 버전의 `data.json`에 남아 있던 키는 로컬 저장이 성공한 뒤에만 제거합니다. 실패 중 입력한 새 키는 현재 세션에서만 유지되므로, 재시작 전에 키체인·파일 접근 문제를 해결하고 다시 저장하세요.
+PC의 암호화·파일 저장이 실패하면 알림을 표시하고 기존 자격증명 파일을 보존합니다. 이전 `data.json`의 키는 로컬 저장 성공 후 제거하지만, 모바일에서 해독할 수 없는 PC 암호문은 PC 마이그레이션을 위해 보존하며 API 키로 사용하지 않습니다. 저장에 실패한 새 키는 현재 세션에만 남습니다. 모바일은 앱 버전(1.11.4 이상), PC는 키체인·파일 접근을 확인한 뒤 다시 저장하세요.
 
 ### 3. 사이드바 열기
 
-리본 아이콘을 클릭하거나, 명령 팔레트에서 **어시스턴트 열기** 실행
+리본 아이콘을 누르거나 명령 팔레트에서 **어시스턴트 열기**를 실행합니다. PC와 모바일 모두 오른쪽 사이드바에서 열립니다.
 
 ### 4. 볼트 인덱싱 (선택)
 
@@ -144,13 +146,15 @@ Obsidian 1.13 이상의 설정 검색에서 현재 백엔드에 표시되는 설
 
 ### 채팅
 
-입력 영역에 메시지를 입력하고 Enter. AI가 실시간 스트리밍으로 응답합니다. 도구 모음 버튼으로 컨텍스트 노트 첨부:
+PC에서는 Enter로 전송합니다. 모바일에서는 Enter가 줄바꿈이며, 전송 버튼 또는 Ctrl/Cmd+Enter로 보냅니다. AI가 실시간 스트리밍으로 응답합니다. 도구 모음 버튼으로 컨텍스트 노트 첨부:
 
 - 📎 현재 노트 첨부
 - 🔍 파일 검색 후 첨부
 - 📁 파일 선택기, 입력 영역으로 드래그앤드롭, 클립보드 붙여넣기로 PC의 텍스트 파일(`.md`·`.txt` 등)·이미지·PDF 첨부
 
 입력 도구 모음의 웹 검색 토글(지구본 아이콘)은 검색 MCP(`fetch`, `exa`, `brave`)가 구성되어 있거나 네이티브 Google 검색 그라운딩이 있는 Gemini 백엔드일 때만 켜집니다. 그 외에는 알림이 표시되고 토글이 꺼진 상태로 유지됩니다.
+
+모바일에서는 로컬 MCP를 실행하지 않으므로 이 토글은 Gemini의 네이티브 웹 검색에서만 사용할 수 있습니다.
 
 ### 추론 강도
 
@@ -196,7 +200,7 @@ Obsidian 1.13 이상의 설정 검색에서 현재 백엔드에 표시되는 설
 4. 기존 노트가 있으면 현재 설정된 AI 모델이 각 노트를 적절한 폴더로 분류
 5. 진행률 모달이 실시간 상태와 완료 시 요약 표시
 
-### MCP 서버
+### MCP 서버 (PC 전용)
 
 설정 → MCP Servers → Edit Config:
 
@@ -226,14 +230,14 @@ Obsidian 1.13 이상의 설정 검색에서 현재 백엔드에 표시되는 설
 - **OpenAI API** — OpenAI 백엔드 사용 시 채팅, 임베딩, 모델 목록 조회를 위해 `https://api.openai.com/v1` 또는 설정한 OpenAI 호환 base URL로 요청
 - **Ollama** — Ollama 백엔드 사용 시 Ollama 서버(기본 `http://localhost:11434`)로 요청. 다른 곳을 가리키지 않는 한 로컬입니다
 - **웹 클리퍼** — 웹 클리퍼 기능 사용 시 요약을 위해 대상 URL을 가져옵니다
-- **MCP 서버** — MCP 서버가 구성되어 있으면 stdio를 통해 로컬에서 실행된 MCP 서버 프로세스와 통신합니다
+- **MCP 서버 (PC 전용)** — MCP 서버가 구성되어 있으면 stdio를 통해 로컬에서 실행된 MCP 서버 프로세스와 통신합니다
 - **후원 배너** — 설정 화면을 열면 `cdn.buymeacoffee.com`에서 후원 버튼 이미지를 불러옵니다
 
 서드파티 분석 또는 추적 서비스로는 데이터를 전송하지 않습니다.
 
 ## 시스템 접근
 
-다음 접근은 기능 구현에 필요하며, MCP 서버 자체의 권한은 별도로 적용됩니다.
+프로세스 실행·볼트 밖 파일 접근·MCP 환경 변수는 PC에서만 사용합니다. 모바일 키는 Obsidian SecretStorage에 저장하며, 볼트·클립보드 접근은 공통입니다. MCP 서버 자체의 권한은 별도로 적용됩니다.
 
 - **프로세스 실행**(`child_process.spawn`) — 저장한 MCP 설정을 시작·재연결할 때 지정한 명령을 `shell: false`로 실행합니다. 플러그인이 셸을 자동으로 끼우지는 않지만, 명령 자체나 인자로 지정한 스크립트의 파일·네트워크 접근을 격리하는 샌드박스는 아닙니다. 서버 설정이 없으면 실행하지 않습니다. 중지 후 3초 동안 종료되지 않은 직접 자식 프로세스에는 강제 종료 신호를 보냅니다.
 - **볼트 밖 파일 접근**(Node `fs`) — AI 백엔드 키는 Electron `userData`의 `agent-llms-credentials.json`에 암호화해 저장합니다. 같은 디렉터리에 권한 `0600`의 임시 파일을 완성한 뒤 교체하며, 구 플러그인 자격증명 파일도 이 디렉터리 안에서 복사합니다. MCP 실행 파일 검색은 Node의 `spawn`과 `PATH` 처리에 맡깁니다.
@@ -241,7 +245,7 @@ Obsidian 1.13 이상의 설정 검색에서 현재 백엔드에 표시되는 설
 - **볼트 전체 탐색** — 검색, Graph RAG 인덱싱, Second Brain, 파일 선택기에 Obsidian의 파일 목록 API를 사용합니다. 인덱싱은 대상 노트와 지원 텍스트 첨부를 청크로 나눠 **설정한 임베딩 API에 전송**합니다. 채팅에 첨부하거나 도구로 읽은 내용도 모델 요청에 포함될 수 있습니다. 로컬 Ollama를 제외한 외부 엔드포인트 사용 시 해당 내용은 기기 밖으로 나갑니다.
 - **클립보드** — 메시지 복사 버튼을 누를 때 쓰고 채팅 입력창에 붙여넣을 때 읽습니다. 복사가 완료된 뒤에만 성공 표시를 보여주며, 실패하면 알림을 표시합니다.
 
-수정 내용과 검증 범위는 [0.7.14 리뷰 기록](docs/review-0.7.14.md)에 정리했습니다.
+모바일 지원과 검증 범위는 [모바일 지원 안내](docs/mobile-support.md), 이전 편집·첨부 변경은 [0.7.14 리뷰 기록](docs/review-0.7.14.md)에 정리했습니다.
 
 ### 릴리스 검증
 
@@ -251,9 +255,11 @@ Obsidian 1.13 이상의 설정 검색에서 현재 백엔드에 표시되는 설
 gh attestation verify main.js --repo TeiNam/obsidian-agent-llms
 ```
 
-## 데스크톱 전용
+## PC·모바일 지원
 
-이 플러그인은 데스크톱 전용(`isDesktopOnly: true`)입니다. MCP 서버 통합이 stdio를 통한 로컬 자식 프로세스 생성에 의존하기 때문이며, 이는 모바일 플랫폼에서 사용할 수 없습니다.
+채팅·볼트 검색·노트 편집·Graph RAG·Second Brain·할 일 관리는 PC와 모바일에서 같은 코드를 사용합니다. 로컬 MCP 서버 실행과 MCP 설정은 PC에서만 제공됩니다.
+
+모바일에서 Ollama를 사용하려면 접근 가능한 서버 주소를 입력하세요. `localhost`는 휴대폰·태블릿 자체를 가리킵니다. 장시간 인덱싱·에이전트 작업은 앱을 전면에 둔 상태에서 실행하세요. [기기별 키 설정과 점검 안내](docs/mobile-support.md)를 참고하세요.
 
 ## 라이선스
 

@@ -8,6 +8,8 @@ import {
   normalizePath,
   MarkdownView,
   TFolder,
+  Platform,
+  requireApiVersion,
 } from "obsidian";
 import type { WorkspaceLeaf } from "obsidian";
 import { VaultIndexer } from "./vault-indexer";
@@ -18,7 +20,7 @@ import { parseNoteLinks } from "./second-brain/wiki-link";
 import { ToolExecutor } from "./obsidian-tools";
 import { ChatView, VIEW_TYPE } from "./chat-view";
 import { GeminiSettingTab } from "./settings-tab";
-import { McpManager } from "./mcp-client";
+import type { McpManager } from "./mcp-client";
 import { DEFAULT_SETTINGS, filterStaleCredentials, normalizeSecondBrainSettings, type GeminiAssistantSettings, type IAiClient, type ChatMessage, type ChatSession } from "./types";
 import { BRANDING, updateBranding, getBranding } from "./branding";
 import {
@@ -34,6 +36,7 @@ import {
   SENSITIVE_FIELDS,
   LEGACY_SENSITIVE_FIELDS,
   migrateCredentialsFile,
+  isEncrypted,
 } from "./safe-storage";
 import { createAiClient } from "./ai-client-factory";
 import { migratePlannerSettings } from "./planner-settings";
@@ -229,7 +232,7 @@ export default class GeminiAssistantPlugin extends Plugin {
   aiClient!: IAiClient;
   indexer!: VaultIndexer;
   toolExecutor!: ToolExecutor;
-  mcpManager!: McpManager;
+  mcpManager: McpManager | null = null;
   aiChangeLedger!: AiChangeLedger;
   // Second Brain Layer 스케줄러 (수동 명령 + onLayoutReady 자동 트리거)
   secondBrainScheduler!: SecondBrainScheduler;
@@ -303,9 +306,13 @@ export default class GeminiAssistantPlugin extends Plugin {
     this.secondBrainScheduler = new SecondBrainScheduler();
 
     // MCP 매니저 초기화 및 타임아웃 설정 적용
-    this.mcpManager = new McpManager();
-    this.mcpManager.setTimeout(this.settings.mcpTimeout);
-    this.mcpManager.setLocale(this.settings.language);
+    if (Platform.isDesktopApp) {
+      // 모바일에는 Node.js가 없으므로 MCP 모듈의 평가 자체를 지연한다.
+      const { McpManager } = await import("./mcp-client");
+      this.mcpManager = new McpManager();
+      this.mcpManager.setTimeout(this.settings.mcpTimeout);
+      this.mcpManager.setLocale(this.settings.language);
+    }
 
     // 사이드바 뷰 등록 (MCP 로드보다 먼저 등록해야 레이아웃 복원 시 뷰가 준비됨)
     this.registerView(VIEW_TYPE, (leaf) => new ChatView(leaf, this));
@@ -1913,6 +1920,14 @@ export default class GeminiAssistantPlugin extends Plugin {
     if (hasMigratedKeys) {
       // 기존 data.json의 키를 복호화 후 로컬 파일로 저장
       const decrypted = decryptSettings(raw);
+      if (Platform.isMobileApp) {
+        // PC 키체인 암호문은 모바일에서 복호화할 수 없으며 API 키로 보내면 안 된다.
+        for (const field of SENSITIVE_FIELDS) {
+          const value = decrypted[field];
+          if (typeof value !== "string" || isEncrypted(value)) decrypted[field] = "";
+        }
+        Object.assign(decrypted, loadCredentialsFromLocal(this.credentialStorage));
+      }
       this.settings = decrypted;
       await this.persistSettings();
     } else {
@@ -1923,7 +1938,7 @@ export default class GeminiAssistantPlugin extends Plugin {
       // 요청이 나가 조용히 과금된다 (filterStaleCredentials 주석 참조).
       const credentials = filterStaleCredentials(
         raw as { awsAuthMethod?: string },
-        loadCredentialsFromLocal()
+        loadCredentialsFromLocal(this.credentialStorage)
       );
       this.settings = { ...raw, ...credentials };
     }
@@ -1956,10 +1971,18 @@ export default class GeminiAssistantPlugin extends Plugin {
 
   private credentialsSaveWarningShown = false;
 
+  private get credentialStorage(): App["secretStorage"] | null | undefined {
+    if (!Platform.isMobileApp) return undefined;
+    return requireApiVersion("1.11.4") ? this.app.secretStorage ?? null : null;
+  }
+
   private async persistSettings(): Promise<void> {
-    const saved = await persistSettingsWithCredentials(this.settings, this);
+    const saved = await persistSettingsWithCredentials(
+      this.settings, this, this.credentialStorage
+    );
     if (!saved && !this.credentialsSaveWarningShown) {
-      new Notice(noticeI18n(this.settings.language).credentialsNotSaved, 10000);
+      const t = noticeI18n(this.settings.language);
+      new Notice(Platform.isMobileApp ? t.credentialsNotSavedMobile : t.credentialsNotSaved, 10000);
     }
     this.credentialsSaveWarningShown = !saved;
   }
@@ -2459,6 +2482,7 @@ export default class GeminiAssistantPlugin extends Plugin {
 
   // MCP 설정 로드 및 서버 연결
   async loadMcpConfig(): Promise<{ connected: string[]; failed: string[] }> {
+    if (!this.mcpManager) return { connected: [], failed: [] };
     const configPath = this.getMcpConfigPath();
     try {
       // MCP 설정 파일은 .obsidian 하위 플러그인 폴더에 위치하므로 adapter를 직접 사용

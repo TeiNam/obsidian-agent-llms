@@ -416,6 +416,35 @@ body.theme-light .ba-message-content pre {
   color: var(--text-muted);
 }
 
+/* 모바일 키보드가 열린 좁은 화면에서도 입력 영역과 터치 대상을 유지한다. */
+.is-mobile .ba-input-container {
+  flex-shrink: 0;
+}
+
+.is-mobile .ba-header,
+.is-mobile .ba-input-toolbar {
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.is-mobile .ba-header-actions,
+.is-mobile .ba-toolbar-left {
+  gap: 2px;
+}
+
+.is-mobile .ba-header-btn,
+.is-mobile .ba-toolbar-btn,
+.is-mobile .ba-action-btn,
+.is-mobile .ba-send-btn,
+.is-mobile .ba-stop-btn {
+  min-width: 44px;
+  min-height: 44px;
+}
+
+.is-mobile .ba-input-wrapper .ba-input {
+  font-size: max(16px, var(--ba-chat-font-size, 14px));
+}
+
 /* 입력 툴바 */
 .ba-input-toolbar {
   display: flex;

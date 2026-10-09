@@ -1,5 +1,6 @@
 # 빌드 출력
 main.js
+dist/
 
 # 의존성
 node_modules/

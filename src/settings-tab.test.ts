@@ -240,6 +240,7 @@ const h = vi.hoisted(() => {
 // obsidian 모듈을 캡처형 Setting / Notice 로 모킹한다.
 // settings-tab.ts 및 그것이 import하는 모달들이 평가 시 필요로 하는 클래스 스텁도 제공한다.
 vi.mock("obsidian", () => ({
+  Platform: { isMobileApp: false, isDesktopApp: true },
   App: class {},
   Notice: h.MockNotice,
   Setting: h.MockSetting,
@@ -276,6 +277,7 @@ vi.mock("obsidian", () => ({
 // 모킹 이후 대상 모듈 import (vitest가 vi.mock을 호이스팅하므로 모킹이 선 적용됨)
 import { GeminiSettingTab, I18N } from "./settings-tab";
 import { DEFAULT_SETTINGS } from "./types";
+import { Platform } from "obsidian";
 
 // 비동기 마이크로/매크로태스크 플러시 (listModels 비동기 IIFE 완료 대기)
 const flush = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
@@ -319,6 +321,27 @@ function renderDefinition(definition: { name: string; desc?: string; render: (se
   definition.render(setting);
   return setting;
 }
+
+describe("모바일 설정", () => {
+  afterEach(() => {
+    Platform.isMobileApp = false;
+    Platform.isDesktopApp = true;
+  });
+
+  it.each([false, true])("모바일=%s: 공통 설정을 유지하고 MCP 정의는 PC에서만 제공한다", (mobile) => {
+    Platform.isMobileApp = mobile;
+    Platform.isDesktopApp = !mobile;
+    const { tab, plugin } = makeTab();
+    plugin.mcpManager = mobile ? null : plugin.mcpManager;
+    const sections = tab.getSettingDefinitions();
+    const rows = sections.flatMap((section: any) => section.items);
+    expect(sections.some((section: any) => section.heading === I18N.en.mcpServers)).toBe(!mobile);
+    expect(rows.some((row: any) => row.name === I18N.en.mcpManage)).toBe(!mobile);
+    expect(rows.some((row: any) => row.name === I18N.en.mcpTimeout)).toBe(!mobile);
+    expect(rows.some((row: any) => row.name === I18N.en.aiBackendLabel)).toBe(true);
+    expect(rows.some((row: any) => row.desc === I18N.en.mobileInfo)).toBe(mobile);
+  });
+});
 
 describe("Multi-Provider 설정 UI (Task 8.2)", () => {
   beforeEach(() => {

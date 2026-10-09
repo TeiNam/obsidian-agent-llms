@@ -2,17 +2,19 @@
 
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.4-blue.svg)
 ![Obsidian](https://img.shields.io/badge/Obsidian-1.7.2%2B-7C3AED.svg)
+![Platforms](https://img.shields.io/badge/Platforms-Desktop%20%7C%20Mobile-blue.svg)
 ![AWS Bedrock](https://img.shields.io/badge/AWS-Bedrock-FF9900.svg)
 ![Google Gemini](https://img.shields.io/badge/Google-Gemini-4285F4.svg)
 ![OpenAI](https://img.shields.io/badge/OpenAI-GPT-412991.svg)
 ![Ollama](https://img.shields.io/badge/Ollama-Local-000000.svg)
+![GitHub Actions](https://img.shields.io/badge/GitHub_Actions-CI%20%2B%20Release-2088FF.svg)
 ![License](https://img.shields.io/badge/License-MIT-green.svg)
 
 [![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-FFDD00?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/teinam)
 
 [English](README.md) | [한국어](README-KR.md) | [日本語](README-JA.md)
 
-This documentation describes **0.7.14**. See the [changelog](CHANGELOG.md) for version history.
+This documentation describes **0.7.15**. See the [changelog](CHANGELOG.md) for version history.
 
 An AI assistant sidebar plugin for Obsidian with multi-provider backend support — AWS Bedrock, Google Gemini, OpenAI, and Ollama.
 
@@ -47,7 +49,7 @@ An AI assistant sidebar plugin for Obsidian with multi-provider backend support 
 - **Archive Cleanup** — Clean up old archived files from the settings tab
 - **P.A.R.A Organizer** — Set up the P.A.R.A folder structure (Projects, Areas, Resources, Archives) and use AI to classify existing notes
 - **Web Clipper** — Fetch, translate, and summarize web pages as markdown notes
-- **MCP Server Integration** — Model Context Protocol servers (uvx, Docker)
+- **MCP Server Integration (Desktop Only)** — Model Context Protocol servers (uvx, Docker)
 - **File Management** — Create, edit, move, and delete notes through AI
 - **Multilingual UI** — English, 한국어, 日本語. Settings, sidebar, command palette, notices, status bar, tool results, and error messages all follow your choice
 - **File Attachments** — Drag-and-drop, clipboard, file search. Text files such as `.md` and `.txt` work on all four backends; each sends up to its first 8,000 characters, and a cut is marked in the prompt and on the file chip. Images work on all four backends; PDFs on Bedrock and Gemini; Office documents on Bedrock. Unsupported combinations are refused with the list of backends that can handle the format, rather than dropped silently
@@ -63,7 +65,7 @@ An AI assistant sidebar plugin for Obsidian with multi-provider backend support 
 
 ## Installation
 
-Requires Obsidian 1.7.2 or later, on desktop.
+Supports desktop, phones, and tablets with Obsidian 1.7.2 or later. Saving mobile API keys requires **1.11.4 or later**; older versions keep new keys only for the current session.
 
 Obsidian 1.13+ settings search can find the settings shown for the current backend. Earlier Obsidian versions retain the settings screen.
 
@@ -128,11 +130,13 @@ Required IAM permissions:
 
 **Ollama:** Enter the server base URL, or leave it empty to use `http://localhost:11434`. No API key is needed.
 
-> **Key storage:** Successfully saved keys are encrypted with the OS keychain and excluded from vault sync. Configure each device separately. Legacy keys in `data.json` are removed only after local storage succeeds; if saving fails, resolve the issue and save again before restarting.
+> **Key storage:** Desktop uses an OS-keychain-backed local file; mobile uses Obsidian SecretStorage. New keys are kept out of the vault's `data.json`. Enter keys separately on each device.
+
+Desktop encryption or file-write failures preserve the existing credential file and show a notice. Legacy keys are removed from `data.json` after successful local storage, except that mobile preserves unreadable desktop ciphertext for desktop migration and never uses it as an API key. Unsaved new keys remain available only for the current session. Check the mobile app version (1.11.4+) or desktop keychain/file access, then save again.
 
 ### 3. Open the Sidebar
 
-Click the ribbon icon, or run the command **Open assistant** from the command palette.
+Use the ribbon icon or run **Open assistant** from the command palette. Chat opens in the right sidebar on both desktop and mobile.
 
 ### 4. Index Your Vault (Optional)
 
@@ -142,13 +146,15 @@ Click 🔍 in the chat header to index notes for semantic search, or run **Index
 
 ### Chat
 
-Type a message in the input area and press Enter. The AI responds in real-time streaming. Attach notes for context using the toolbar buttons:
+On desktop, press Enter to send. On mobile, Enter inserts a newline; use the send button or Ctrl/Cmd+Enter to send. The AI responds in real-time streaming. Attach notes for context using the toolbar buttons:
 
 - 📎 Attach current note
 - 🔍 Search and attach any file
 - 📁 Attach text files (`.md`, `.txt`, …), images, and PDFs from your computer via file picker, drag-and-drop onto the input area, or clipboard paste
 
 The web search toggle (globe icon) in the input toolbar only turns on if a search MCP (`fetch`, `exa`, or `brave`) is configured, or if you are on the Gemini backend, which has native Google Search grounding. Otherwise clicking it shows a notice and the toggle stays off.
+
+Mobile does not run local MCP servers, so this toggle is available only for Gemini's native web search.
 
 ### Reasoning Effort
 
@@ -196,7 +202,7 @@ The generated frontmatter has four fields: `source` (the URL), `created` (the da
 4. If existing notes are found, the currently configured AI model classifies each note into the appropriate folder
 5. A progress modal shows real-time status and a summary when complete
 
-### MCP Server
+### MCP Server (Desktop Only)
 
 Settings → MCP Servers → Edit Config:
 
@@ -226,14 +232,14 @@ This plugin makes network requests to the following external services:
 - **OpenAI API** — When using the OpenAI backend, requests are sent to `https://api.openai.com/v1` for chat, embedding, and model listing, or to the OpenAI-compatible base URL you configure.
 - **Ollama** — When using the Ollama backend, requests are sent to your Ollama server (default `http://localhost:11434`), which is local unless you point it elsewhere.
 - **Web Clipper** — When using the Web Clipper feature, the plugin fetches the target URL to retrieve page content for summarization.
-- **MCP Servers** — When MCP servers are configured, the plugin communicates with locally spawned MCP server processes via stdio.
+- **MCP Servers (Desktop Only)** — When MCP servers are configured, the plugin communicates with locally spawned MCP server processes via stdio.
 - **Sponsor banner** — Opening the settings screen loads the sponsor button image from `cdn.buymeacoffee.com`.
 
 No data is sent to any third-party analytics or tracking services.
 
 ## System Access
 
-These capabilities support the features below. MCP servers have their own access privileges.
+Process execution, filesystem access outside the vault, and MCP environment variables apply only on desktop. Mobile keys use Obsidian SecretStorage; vault and clipboard access are shared. MCP servers have their own access privileges.
 
 - **Process execution** (`child_process.spawn`) — Saved MCP commands run on startup or reconnection with `shell: false`. The plugin does not insert a shell, but it does not sandbox the command or scripts supplied as arguments. No server configuration means no server process. A direct child that remains alive three seconds after stopping receives a force-kill signal.
 - **Filesystem access outside the vault** (Node `fs`) — AI backend keys are encrypted in `agent-llms-credentials.json` under Electron's `userData` directory. A complete temporary file with mode `0600` replaces the destination; legacy credential files are copied within the same directory. Encryption/write failures preserve the previous file and show a notice. Legacy keys in `data.json` are removed only after local storage succeeds. Newly entered keys remain in memory if saving fails; resolve the issue and save again before restarting. MCP executable lookup uses Node's `spawn` and `PATH`.
@@ -241,7 +247,7 @@ These capabilities support the features below. MCP servers have their own access
 - **Vault enumeration** — Search, Graph RAG indexing, Second Brain, and file selection use Obsidian's file-list APIs. Indexing splits notes and supported text attachments into chunks and **sends them to the configured embedding API**. Attached files and notes, and tool-read content, can also enter model requests. Remote endpoints receive this content; local Ollama keeps these requests on the device.
 - **Clipboard** — Written when you press a message's copy button and read when you paste into chat. Success appears only after the write completes; failures show a notice.
 
-See the [0.7.14 review record (Korean)](docs/review-0.7.14.md) for changes and validation scope.
+See the [mobile support guide (Korean)](docs/mobile-support.md) for mobile behavior and validation, and the [0.7.14 review record (Korean)](docs/review-0.7.14.md) for earlier editing and attachment changes.
 
 ### Verifying a release
 
@@ -251,9 +257,11 @@ Release assets from `0.7.6` onward carry GitHub artifact attestations, so you ca
 gh attestation verify main.js --repo TeiNam/obsidian-agent-llms
 ```
 
-## Desktop Only
+## Desktop and Mobile
 
-This plugin is desktop-only (`isDesktopOnly: true`) because MCP server integration relies on spawning local child processes via stdio, which is not available on mobile platforms.
+Chat, vault search, note editing, Graph RAG, Second Brain, and to-do management share the same code on desktop and mobile. Local MCP server execution and MCP settings are desktop-only.
+
+For Ollama on mobile, configure a server address reachable from that device; `localhost` refers to the phone or tablet itself. Keep the app in the foreground for long indexing or agent tasks. See the [device setup and testing guide (Korean)](docs/mobile-support.md).
 
 ## License
 

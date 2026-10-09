@@ -1,4 +1,4 @@
-import { App, FuzzySuggestModal, Modal, Notice, PluginSettingTab, Setting, TFolder, requireApiVersion, setIcon, setTooltip } from "obsidian";
+import { App, FuzzySuggestModal, Modal, Notice, PluginSettingTab, Setting, TFolder, requireApiVersion, setIcon, setTooltip, Platform } from "obsidian";
 import type GeminiAssistantPlugin from "./main";
 import type { CustomSkill, EffortLevel, Locale } from "./types";
 // Second Brain 설정 정규화 (Req 1.4, 1.5): onChange 시점 값 보정에 사용
@@ -25,7 +25,6 @@ import {
 // Graph RAG 설정 보정 함수 (Req 9.4~9.7): 저장 전 값 보정에 사용
 import { normalizeChunkConfig } from "./graph-rag/chunker";
 import { normalizeTraversalDepth } from "./graph-rag/graph-traversal";
-import { parseMcpConfig } from "./mcp-client";
 import { voidAsync } from "./async-utils";
 
 // To-Do 폴더 기본값 (빈/공백 입력 정규화에 사용)
@@ -36,6 +35,7 @@ const TODO_FOLDER_DEFAULT = "ToDo";
 export const I18N = {
   en: {
     pluginDesc: "An AI assistant sidebar that reads, searches, and writes your vault. Everything below is off or empty until you configure it — nothing runs on your notes without your say-so.",
+    mobileInfo: "Mobile API keys are stored on this device with Obsidian SecretStorage (1.11.4+). Set them up separately on each device. Older versions keep new keys only for the current session. Local MCP servers are available on desktop only.",
     readmeLabel: "📖 Documentation",
     readmeFile: "README.md",
     sponsorLabel: "If you find this plugin useful, consider supporting its development.",
@@ -231,6 +231,7 @@ export const I18N = {
   },
   ko: {
     pluginDesc: "볼트를 읽고 검색하고 쓰는 AI 어시스턴트 사이드바입니다. 아래 기능은 설정하기 전까지 모두 꺼져 있거나 비어 있습니다 — 승인 없이 노트를 건드리지 않습니다.",
+    mobileInfo: "모바일 API 키는 Obsidian SecretStorage(1.11.4 이상)를 통해 이 기기에 저장됩니다. 기기마다 별도로 입력해 주세요. 구버전에서는 새 키가 현재 세션에만 유지됩니다. 로컬 MCP 서버는 PC에서만 사용할 수 있습니다.",
     readmeLabel: "📖 사용 가이드",
     readmeFile: "README-KR.md",
     sponsorLabel: "이 플러그인이 유용하다면 개발을 후원해 주세요.",
@@ -426,6 +427,7 @@ export const I18N = {
   },
   ja: {
     pluginDesc: "ボルトを読み・検索し・書くAIアシスタントサイドバーです。以下の機能は設定するまですべてオフか空の状態で、承認なしにノートを触ることはありません。",
+    mobileInfo: "モバイルのAPIキーはObsidian SecretStorage（1.11.4以降）でこの端末に保存されます。端末ごとに入力してください。旧バージョンでは新しいキーは現在のセッションのみ保持されます。ローカルMCPサーバーはPC専用です。",
     readmeLabel: "📖 ドキュメント",
     readmeFile: "README-JA.md",
     sponsorLabel: "このプラグインが役に立ったら、開発を支援してください。",
@@ -756,6 +758,7 @@ export class GeminiSettingTab extends PluginSettingTab {
     };
 
     addSetting("", tk("pluginDesc"), () => {}, false);
+    if (Platform.isMobileApp) addSetting("", t.mobileInfo, () => {}, false);
 
     // 언어 선택
     addSetting(t.language, t.languageDesc, (setting) => {
@@ -1656,65 +1659,67 @@ export class GeminiSettingTab extends PluginSettingTab {
         );
     });
 
-    // MCP 서버 설정
-    addHeading(t.mcpServers);
+    if (Platform.isDesktopApp) {
+      // MCP 서버 설정
+      addHeading(t.mcpServers);
 
-    addSetting(t.mcpManage, t.mcpManageDesc, (setting) => {
-      setting
-        .addButton((btn) =>
-          btn.setButtonText(t.mcpEdit).onClick(() => {
-            new McpConfigModal(this.app, this.plugin, () => this.refreshSettings()).open();
-          })
-        )
-        .addButton((btn) =>
-          btn.setButtonText(t.mcpStopAll).onClick(() => {
-            this.plugin.mcpManager.disconnectAll();
-            new Notice(t.mcpStopped);
-            this.refreshSettings();
-          })
-        );
-    });
+      addSetting(t.mcpManage, t.mcpManageDesc, (setting) => {
+        setting
+          .addButton((btn) =>
+            btn.setButtonText(t.mcpEdit).onClick(() => {
+              new McpConfigModal(this.app, this.plugin, () => this.refreshSettings()).open();
+            })
+          )
+          .addButton((btn) =>
+            btn.setButtonText(t.mcpStopAll).onClick(() => {
+              this.plugin.mcpManager?.disconnectAll();
+              new Notice(t.mcpStopped);
+              this.refreshSettings();
+            })
+          );
+      });
 
-    // MCP 서버 상태 리스트 (관리 버튼 아래, 들여쓰기)
-    addSetting("", undefined, (setting) => {
-      const mcpStatus = this.plugin.mcpManager.getStatus();
-      const statusEl = setting.settingEl;
-      statusEl.empty();
-      statusEl.addClass("ba-mcp-status-list");
-      if (mcpStatus.length > 0) {
-        for (const s of mcpStatus) {
-          const icon = s.connected ? "🟢" : "🔴";
-          statusEl.createDiv({ text: `${icon} ${s.name} — ${s.toolCount} tools` });
-        }
-      } else {
-        statusEl.createEl("p", {
-          text: t.mcpNoServers,
-          cls: "setting-item-description",
-        });
-      }
-    }, false);
-
-    // MCP 도구 타임아웃 (MCP 서버 관리 아래에 배치, 숫자 입력 1~60초)
-    addSetting(t.mcpTimeout, t.mcpTimeoutDesc, (setting) => {
-      setting
-        .addText((text) => {
-          text.inputEl.type = "number";
-          text.inputEl.min = "1";
-          text.inputEl.max = "60";
-          text.setValue(String(this.plugin.settings.mcpTimeout));
-          text.onChange(async (value) => {
-            const parsed = parseInt(value, 10);
-            if (!Number.isFinite(parsed)) return; // 빈/잘못된 입력은 무시
-            const clamped = Math.max(1, Math.min(60, parsed));
-            this.plugin.settings.mcpTimeout = clamped;
-            await this.plugin.saveSettings();
-            // 실행 중인 MCP 서버에 즉시 반영
-            this.plugin.mcpManager.setTimeout(clamped);
-            // 범위를 벗어난 입력은 보정된 값으로 표시 갱신
-            if (clamped !== parsed) text.setValue(String(clamped));
+      // MCP 서버 상태 리스트 (관리 버튼 아래, 들여쓰기)
+      addSetting("", undefined, (setting) => {
+        const mcpStatus = this.plugin.mcpManager?.getStatus() ?? [];
+        const statusEl = setting.settingEl;
+        statusEl.empty();
+        statusEl.addClass("ba-mcp-status-list");
+        if (mcpStatus.length > 0) {
+          for (const s of mcpStatus) {
+            const icon = s.connected ? "🟢" : "🔴";
+            statusEl.createDiv({ text: `${icon} ${s.name} — ${s.toolCount} tools` });
+          }
+        } else {
+          statusEl.createEl("p", {
+            text: t.mcpNoServers,
+            cls: "setting-item-description",
           });
-        });
-    });
+        }
+      }, false);
+
+      // MCP 도구 타임아웃 (MCP 서버 관리 아래에 배치, 숫자 입력 1~60초)
+      addSetting(t.mcpTimeout, t.mcpTimeoutDesc, (setting) => {
+        setting
+          .addText((text) => {
+            text.inputEl.type = "number";
+            text.inputEl.min = "1";
+            text.inputEl.max = "60";
+            text.setValue(String(this.plugin.settings.mcpTimeout));
+            text.onChange(async (value) => {
+              const parsed = parseInt(value, 10);
+              if (!Number.isFinite(parsed)) return; // 빈/잘못된 입력은 무시
+              const clamped = Math.max(1, Math.min(60, parsed));
+              this.plugin.settings.mcpTimeout = clamped;
+              await this.plugin.saveSettings();
+              // 실행 중인 MCP 서버에 즉시 반영
+              this.plugin.mcpManager?.setTimeout(clamped);
+              // 범위를 벗어난 입력은 보정된 값으로 표시 갱신
+              if (clamped !== parsed) text.setValue(String(clamped));
+            });
+          });
+      });
+    }
 
     // 추천 플러그인 설치 안내 (설정 화면 맨 아래로 이동)
     addHeading(t.recommendedPlugins);
@@ -2315,6 +2320,7 @@ class McpConfigModal extends Modal {
     const t = I18N[this.plugin.settings.language] || I18N.en;
 
     try {
+      const { parseMcpConfig } = await import("./mcp-client");
       parseMcpConfig(configText, this.plugin.settings.language);
     } catch (error) {
       new Notice(
@@ -2392,7 +2398,7 @@ class McpConfigModal extends Modal {
   private renderStatus(): void {
     this.statusEl.empty();
     const t = I18N[this.plugin.settings.language] || I18N.en;
-    const mcpStatus = this.plugin.mcpManager.getStatus();
+    const mcpStatus = this.plugin.mcpManager?.getStatus() ?? [];
 
     if (mcpStatus.length === 0) {
       this.statusEl.createDiv({ text: t.mcpStatusNone, cls: "ba-mcp-status-item" });

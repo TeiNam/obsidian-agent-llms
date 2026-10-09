@@ -1,6 +1,6 @@
 {
   "name": "obsidian-agent-llms",
-  "version": "0.7.14",
+  "version": "0.7.15",
   "description": "Obsidian sidebar agentic LLM assistant with four backends (AWS Bedrock, Google Gemini, OpenAI, Ollama)",
   "main": "main.js",
   "scripts": {
