@@ -1,6 +1,6 @@
 # Bedrock API Key Setup Guide
 
-This guide describes **0.7.14**. See the [README](../README.md) for installation and basic usage.
+This guide describes **0.7.15**. See the [README](../README.md) for installation and basic usage.
 
 The Agent LLMs Bedrock backend authenticates with a single **Bedrock API key (bearer token)**. Enter the key on each device and replace it when it expires or is rotated.
 
@@ -22,7 +22,7 @@ Bedrock API keys are entered once per device. Expiration is managed in the AWS C
 |---|---|
 | AWS account | Access to the models you intend to use in the selected region |
 | IAM permissions | The invocation, listing, and API-key permissions below; see section 1 for first-use setup |
-| Plugin | Obsidian 1.7.2 or later, desktop only |
+| Plugin | Obsidian 1.7.2+, desktop and mobile. Mobile key storage requires 1.11.4+ |
 
 ```
 bedrock:InvokeModelWithResponseStream
@@ -81,11 +81,13 @@ If the model dropdowns are empty, see Troubleshooting below. Obsidian 1.13+ sett
 
 ### Key Storage and Migration
 
-New API keys are encrypted with the OS keychain (macOS Keychain, Windows DPAPI, Linux libsecret) and stored in `agent-llms-credentials.json` under Electron's `userData` directory. A complete temporary file with mode `0600` replaces the destination in the same directory.
+On desktop, new API keys are encrypted with the OS keychain (macOS Keychain, Windows DPAPI, Linux libsecret) and stored in `agent-llms-credentials.json` under Electron's `userData` directory. A complete temporary file with mode `0600` replaces the destination in the same directory.
 
 If encryption, writing, or file replacement fails, the plugin shows a notice and preserves the existing local file. Unsaved new keys remain in memory only. **Resolve the keychain or write-permission issue and save again before restarting.**
 
-Keys left in the vault's `data.json` by older versions are **removed only after local storage succeeds**. While migration is failing, those older keys can remain in the vault and be synced. Successfully migrated keys are excluded from vault sync.
+Mobile uses Obsidian SecretStorage (1.11.4+). Older versions or storage failures leave new keys available only for the current session. See the [mobile setup guide (Korean)](mobile-support.md).
+
+Keys left in the vault's `data.json` by older versions are **removed only after local storage succeeds**. Mobile preserves unreadable desktop ciphertext for desktop migration and never uses it as an API key. While migration is failing, those older keys can remain in the vault and be synced. Successfully migrated keys are excluded from vault sync.
 
 ## Using Multiple Devices
 
@@ -115,7 +117,7 @@ If your sync tool is configured to exclude dotfiles, the index will not move. In
 
 Enter the key in settings. The plugin **intentionally fails** when the key is empty — falling back to the AWS SDK's default credential chain could silently pick up the `[default]` profile in `~/.aws/credentials`, environment variables, or IAM roles, sending your notes and charges to an account you did not choose.
 
-If this appears after restarting, check whether a credential-save failure notice appeared earlier. Check OS keychain availability and write access to Electron's `userData` directory, then enter and save the key again.
+If this appears after restarting, check whether a credential-save failure notice appeared earlier. On desktop, check the OS keychain and write access to Electron's `userData` directory; on mobile, check the app version (1.11.4+). Then enter and save the key again.
 
 ### Model Dropdowns Are Empty
 

@@ -15,6 +15,7 @@ vi.mock("obsidian", () => {
   }
 
   return {
+    Platform: { isMobileApp: false, isDesktopApp: true },
     App: class {},
     Component,
     FuzzySuggestModal,

@@ -10,6 +10,7 @@ const bundled = buildSync({
   bundle: true,
   platform: "node",
   format: "cjs",
+  external: ["obsidian"],
   write: false,
 }).outputFiles[0].text;
 let api: typeof import("./safe-storage");
@@ -40,6 +41,7 @@ beforeEach(() => {
     unlinkSync: vi.fn((path: string) => { files.delete(path); }),
   };
   const require = (id: string) => {
+    if (id === "obsidian") return { requireApiVersion: () => true };
     if (id === "fs") return fs;
     if (id === "path") return { join };
     if (id === "electron") return {
@@ -129,5 +131,54 @@ describe("자격증명 영속화", () => {
     expect(files.has(credentialPath)).toBe(false);
     expect(migrateCredentialsFile(["ai-assistant"], "agent-llms")).toBe(true);
     expect(files.get(credentialPath)).toBe(files.get(legacy));
+  });
+});
+
+describe("모바일 SecretStorage", () => {
+  function secrets(initial = "{}") {
+    let value = initial;
+    return {
+      getSecret: vi.fn(() => value),
+      setSecret: vi.fn((_id: string, next: string) => { value = next; }),
+    } as any;
+  }
+
+  it("키를 한 항목으로 저장하고 재로드하며 볼트에는 PC 암호문만 보존한다", async () => {
+    const secretStorage = secrets();
+    const store = storage({ bedrockApiKey: "enc:desktop-key", language: "en" });
+    const keys = { geminiApiKey: "mobile-gemini", bedrockApiKey: "mobile-bedrock" };
+
+    expect(await api.persistSettingsWithCredentials({ ...keys, language: "ko" }, store, secretStorage)).toBe(true);
+    expect(secretStorage.setSecret).toHaveBeenCalledTimes(1);
+    expect(api.loadCredentialsFromLocal(secretStorage)).toEqual(keys);
+    expect(store.current()).toEqual({ geminiApiKey: "", bedrockApiKey: "enc:desktop-key", language: "ko" });
+    expect(fs.writeFileSync).not.toHaveBeenCalled();
+
+    expect(api.saveCredentialsToLocal({ geminiApiKey: "", bedrockApiKey: "" }, secretStorage)).toBe(true);
+    expect(api.loadCredentialsFromLocal(secretStorage)).toEqual({});
+  });
+
+  it("모바일 저장 실패 시 이전 키와 볼트의 마이그레이션 원본을 보존한다", async () => {
+    const secretStorage = secrets('{"geminiApiKey":"old-key"}');
+    secretStorage.setSecret.mockImplementationOnce(() => { throw new Error("locked"); });
+    const store = storage({ geminiApiKey: "legacy-key", language: "en" });
+    expect(await api.persistSettingsWithCredentials({ geminiApiKey: "new-key", language: "ko" }, store, secretStorage)).toBe(false);
+    expect(api.loadCredentialsFromLocal(secretStorage)).toEqual({ geminiApiKey: "old-key" });
+    expect(store.current()).toEqual({ geminiApiKey: "legacy-key", language: "ko" });
+  });
+
+  it("구버전 모바일은 새 키를 평문으로 저장하거나 PC 저장소로 폴백하지 않는다", async () => {
+    const store = storage({ language: "en" });
+    expect(await api.persistSettingsWithCredentials({ openaiApiKey: "new-key", language: "ko" }, store, null)).toBe(false);
+    expect(store.current()).toEqual({ openaiApiKey: "", language: "ko" });
+    expect(api.loadCredentialsFromLocal(null)).toEqual({});
+    expect(fs.writeFileSync).not.toHaveBeenCalled();
+  });
+
+  it("해독 불가능한 PC 암호문은 모바일 키로 저장하거나 반환하지 않는다", () => {
+    const secretStorage = secrets('{"bedrockApiKey":"enc:desktop-key","openaiApiKey":42,"language":"ja"}');
+    expect(api.loadCredentialsFromLocal(secretStorage)).toEqual({});
+    expect(api.saveCredentialsToLocal({ bedrockApiKey: "enc:desktop-key" }, secretStorage)).toBe(false);
+    expect(secretStorage.setSecret).not.toHaveBeenCalled();
   });
 });

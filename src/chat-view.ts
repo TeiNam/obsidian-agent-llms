@@ -1,4 +1,4 @@
-import { Component, ItemView, WorkspaceLeaf, MarkdownRenderer, setIcon, MarkdownView, TFile, FuzzySuggestModal, Notice } from "obsidian";
+import { Component, ItemView, WorkspaceLeaf, MarkdownRenderer, setIcon, MarkdownView, TFile, FuzzySuggestModal, Notice, Platform } from "obsidian";
 import type GeminiAssistantPlugin from "./main";
 import type { ChatMessage, ConverseMessage, ContentBlockToolUse, ModelInfo, ChatSession } from "./types";
 import { TOOLS } from "./obsidian-tools";
@@ -310,8 +310,8 @@ export class ChatView extends ItemView {
       // 229(조합 중)를 함께 본다. 빼면 한글 입력이 조합 도중 전송된다.
       const legacyKeyCode = (e as unknown as { readonly keyCode?: number }).keyCode;
       if (e.isComposing || legacyKeyCode === IME_COMPOSING_KEY_CODE) return;
-      // Enter 단독: 전송, Shift+Enter: 줄바꿈
-      if (e.key === "Enter" && !e.shiftKey) {
+      // 모바일 Enter는 줄바꿈이며, 전송 버튼 또는 Ctrl/Cmd+Enter로 보낸다.
+      if (e.key === "Enter" && !e.shiftKey && (!Platform.isMobileApp || e.ctrlKey || e.metaKey)) {
         e.preventDefault();
         e.stopPropagation();
         void this.handleSend();
@@ -687,7 +687,7 @@ export class ChatView extends ItemView {
       let fullText = "";
 
       // 옵시디언 내장 도구 + MCP 도구 합치기
-      const allTools = [...TOOLS, ...this.plugin.mcpManager.getAllTools()];
+      const allTools = [...TOOLS, ...(this.plugin.mcpManager?.getAllTools() ?? [])];
 
       // ── 대화 히스토리 토큰 트리밍 (REQ-3) ──
       // 컨텍스트 윈도우 초과 방지를 위해 오래된 메시지부터 제거
@@ -950,7 +950,7 @@ export class ChatView extends ItemView {
           try {
             // MCP 도구인지 확인하여 라우팅
             let result: string;
-            if (this.plugin.mcpManager.isMcpTool(toolBlock.name)) {
+            if (this.plugin.mcpManager?.isMcpTool(toolBlock.name)) {
               result = await this.plugin.mcpManager.executeTool(
                 toolBlock.name,
                 toolBlock.input
@@ -1320,7 +1320,7 @@ export class ChatView extends ItemView {
     if (!this.mcpStatusEl) return;
     this.mcpStatusEl.empty();
 
-    const status = this.plugin.mcpManager.getStatus();
+    const status = this.plugin.mcpManager?.getStatus() ?? [];
     if (status.length === 0) return; // MCP 서버가 없으면 표시 안 함
 
     const connectedCount = status.filter((s) => s.connected).length;
@@ -1520,7 +1520,7 @@ export class ChatView extends ItemView {
     }
 
     // 본문 내 인라인 태그(#태그) 제거 — 헤딩(## 등)은 제외
-    const cleanedBody = bodyContent.replace(/(?<=\s|^)#(?!#)([^\s#]+)/gm, "");
+    const cleanedBody = bodyContent.replace(/(^|\s)#(?!#)([^\s#]+)/gm, "$1");
 
     // 기존 frontmatter에서 tags/tag 속성 제거
     let cleanedFrontmatter = frontmatterSection;

@@ -1,5 +1,5 @@
 /**
- * Electron safeStorage 래퍼 모듈
+ * 기기별 자격증명 저장 모듈
  *
  * OS 키체인(macOS Keychain, Windows DPAPI, Linux libsecret)을 활용하여
  * 민감한 문자열을 암복호화합니다.
@@ -11,6 +11,7 @@
  * 민감한 키(Access Key, Secret Key, API Key)는 볼트 내 data.json이 아닌
  * Electron userData 경로(로컬 전용, iCloud 동기화 안 됨)에 별도 저장합니다.
  * 이렇게 하면 기기별 키체인으로 암호화된 값이 다른 기기로 전파되지 않습니다.
+ * 모바일은 Obsidian SecretStorage에 저장하며, 미지원 버전에서는 새 키를 메모리에만 둡니다.
  */
 
 
@@ -21,6 +22,8 @@ declare class Buffer {
 }
 
 import { planCredentialMigration } from "./migration";
+import type { App } from "obsidian";
+import { requireApiVersion } from "obsidian";
 
 // 암호화된 값 식별 접두사
 const ENCRYPTED_PREFIX = "enc:";
@@ -29,6 +32,7 @@ const ENCRYPTED_PREFIX = "enc:";
 // `{pluginId}-credentials.json` 규칙을 지켜야 한다 — planCredentialMigration이
 // 같은 규칙으로 마이그레이션 대상 파일명을 만든다.
 const CREDENTIALS_FILE = "agent-llms-credentials.json";
+const MOBILE_CREDENTIALS_ID = "agent-llms-credentials";
 
 /** 이 모듈이 실제로 쓰는 `fs` API만 좁혀 선언한다. */
 interface NodeFsSubset {
@@ -260,7 +264,30 @@ function writeCredentialsFile(fs: NodeFsSubset, filePath: string, data: string):
   }
 }
 
-export function saveCredentialsToLocal(settings: Record<string, unknown>): boolean {
+export function saveCredentialsToLocal(
+  settings: Record<string, unknown>,
+  secretStorage?: App["secretStorage"] | null,
+): boolean {
+  if (requireApiVersion("1.11.4") && secretStorage !== undefined) {
+    if (!secretStorage) return false;
+    const credentials: Record<string, string> = {};
+    for (const field of SENSITIVE_FIELDS) {
+      const value = settings[field];
+      if (!value) continue;
+      if (typeof value !== "string" || isEncrypted(value)) return false;
+      credentials[field] = value;
+    }
+    try {
+      // 하나의 항목으로 저장해 여러 키 중 일부만 교체되는 상황을 피한다.
+      const data = JSON.stringify(credentials);
+      secretStorage.setSecret(MOBILE_CREDENTIALS_ID, data);
+      return secretStorage.getSecret(MOBILE_CREDENTIALS_ID) === data;
+    } catch (error) {
+      console.error("자격증명 모바일 저장 실패:", error);
+      return false;
+    }
+  }
+  if (secretStorage !== undefined) return false;
   const filePath = getCredentialsFilePath();
   if (!filePath || !nodeFs) return false;
 
@@ -287,16 +314,18 @@ export async function persistSettingsWithCredentials<T extends object>(
     loadData(): Promise<unknown>;
     saveData(data: unknown): Promise<void>;
   },
+  secretStorage?: App["secretStorage"] | null,
 ): Promise<boolean> {
-  const saved = saveCredentialsToLocal(settings as Record<string, unknown>);
+  const saved = saveCredentialsToLocal(settings as Record<string, unknown>, secretStorage);
   const data = stripSensitiveFields(settings) as Record<string, unknown>;
-  if (!saved) {
+  if (!saved || secretStorage !== undefined) {
     const previous = await storage.loadData();
     if (previous && typeof previous === "object") {
       const record = previous as Record<string, unknown>;
       for (const field of SENSITIVE_FIELDS) {
         const value = record[field];
-        if (typeof value === "string" && value) data[field] = value;
+        // 모바일에서 해독하지 못한 PC 암호문은 PC의 마이그레이션을 위해 남긴다.
+        if (typeof value === "string" && value && (!saved || isEncrypted(value))) data[field] = value;
       }
     }
   }
@@ -308,7 +337,25 @@ export async function persistSettingsWithCredentials<T extends object>(
  * 로컬 전용 파일에서 자격증명을 읽어 복호화하여 반환
  * 파일이 없거나 읽기 실패 시 빈 객체 반환
  */
-export function loadCredentialsFromLocal(): Record<string, string> {
+export function loadCredentialsFromLocal(secretStorage?: App["secretStorage"] | null): Record<string, string> {
+  if (requireApiVersion("1.11.4") && secretStorage !== undefined) {
+    try {
+      const stored = secretStorage?.getSecret(MOBILE_CREDENTIALS_ID);
+      if (!stored) return {};
+      const parsed: unknown = JSON.parse(stored);
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+      const result: Record<string, string> = {};
+      for (const field of SENSITIVE_FIELDS) {
+        const value = (parsed as Record<string, unknown>)[field];
+        if (typeof value === "string" && !isEncrypted(value)) result[field] = value;
+      }
+      return result;
+    } catch (error) {
+      console.error("자격증명 모바일 로드 실패:", error);
+      return {};
+    }
+  }
+  if (secretStorage !== undefined) return {};
   const filePath = getCredentialsFilePath();
   if (!filePath || !nodeFs) return {};
 
