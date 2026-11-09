@@ -18,6 +18,7 @@ import { VIEW_I18N, type ViewLang } from "./chat-view-i18n";
 import {
   clampEffort,
   effortLevels,
+  shortModelName,
   supportsAttachmentFormat,
   attachmentKindOf,
   backendsSupportingFormat,
@@ -1334,7 +1335,8 @@ export class ChatView extends ItemView {
   updateModelLabel(): void {
     // 뷰가 열리기 전(onOpen 이전)에 설정 저장이 호출될 수 있다.
     if (!this.modelLabelEl) return;
-    const displayName = this.getModelDisplayName(this.getActiveChatModel());
+    // 드롭다운은 전체 이름, 하단 표시는 별칭·버전만 (예: "Opus 5.5")
+    const displayName = shortModelName(this.getModelDisplayName(this.getActiveChatModel()));
     const { allowed, current } = this.getEffortState();
     this.modelLabelEl.setText(allowed.length > 0 ? `${displayName} · ${current}` : displayName);
   }

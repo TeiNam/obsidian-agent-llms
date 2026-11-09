@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import * as fc from "fast-check";
 import {
+	shortModelName,
 	normalizeBaseUrl,
 	resolveBaseUrl,
 	isValidBaseUrl,
@@ -1527,5 +1528,29 @@ describe("backendsSupportingFormat", () => {
 	it("첨부 대상이 아닌 형식은 빈 배열이다", () => {
 		// 안내 문구가 "어떤 백엔드도 지원하지 않습니다"로 갈리는 분기다.
 		expect(backendsSupportingFormat("zip")).toEqual([]);
+	});
+});
+
+describe("shortModelName: 하단 표시용 짧은 모델 이름", () => {
+	it.each([
+		["Global Anthropic Claude Opus 5.5", "Opus 5.5"],
+		["GLOBAL Anthropic Claude Opus 4.5", "Opus 4.5"],
+		["Global Claude Sonnet 4.5", "Sonnet 4.5"],
+		["Global OpenAI GPT-6.1 Sol", "GPT-6.1 Sol"],
+		["Global OpenAI GPT 5.4", "GPT 5.4"],
+		["Global Moonshot AI Kimi K3.1", "Kimi K3.1"],
+		["Global xAI Grok 4.7", "Grok 4.7"],
+		["Global Z.AI GLM 5.3", "GLM 5.3"],
+		// 프로파일 표기가 없는 이름(Gemini·OpenAI·Ollama)은 그대로
+		["gemini-3.1-flash-lite", "gemini-3.1-flash-lite"],
+		["gpt-5.4-mini", "gpt-5.4-mini"],
+		["llama3.2:latest", "llama3.2:latest"],
+	])("%s → %s", (input, expected) => {
+		expect(shortModelName(input)).toBe(expected);
+	});
+
+	it("다 지워지는 이름은 원래 이름을 유지한다", () => {
+		expect(shortModelName("Global")).toBe("Global");
+		expect(shortModelName("")).toBe("");
 	});
 });
