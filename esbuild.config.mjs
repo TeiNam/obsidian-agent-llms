@@ -22,6 +22,8 @@ esbuild.build({
     "@lezer/highlight",
     "@lezer/lr",
     ...builtinModules,
+    // AWS 자격증명 SDK가 node: 접두어로 내장 모듈을 가져온다.
+    ...builtinModules.map((m) => `node:${m}`),
   ],
   format: "cjs",
   target: "chrome106",
