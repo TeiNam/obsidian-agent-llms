@@ -185,6 +185,10 @@ export interface GeminiAssistantSettings {  language: Locale;
   aiBackend: "bedrock" | "gemini" | "openai" | "ollama";
   /** Bedrock API 키 (장기 베어러 토큰) */
   bedrockApiKey: string;
+  /** Roles Anywhere용 `~/.aws/config` 프로필 이름 (PC 전용, 1순위) */
+  bedrockRolesAnywhereProfile: string;
+  /** SSO용 `~/.aws/config` 프로필 이름 (PC 전용, 2순위) */
+  bedrockSsoProfile: string;
   /** AWS 리전 (Bedrock) */
   awsRegion: string;
   /** Bedrock 채팅 모델 ID */
@@ -321,6 +325,8 @@ export const DEFAULT_SETTINGS: GeminiAssistantSettings = {
   // AI 백엔드 통합 기본값
   aiBackend: "bedrock",
   bedrockApiKey: "",
+  bedrockRolesAnywhereProfile: "",
+  bedrockSsoProfile: "",
   awsRegion: "us-east-1",
   bedrockChatModel: "",
   bedrockEmbeddingModel: "",

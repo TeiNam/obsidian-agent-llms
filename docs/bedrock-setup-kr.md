@@ -1,20 +1,28 @@
-# Bedrock API 키 설정 가이드
+# Bedrock 인증 설정 가이드
 
 이 가이드는 **0.7.15** 기준입니다. [설치와 기본 사용법](../README-KR.md)도 함께 참고하세요.
 
-Agent LLMs의 Bedrock 백엔드는 **Bedrock API 키(베어러 토큰)** 하나로 인증합니다. 기기마다 키를 입력하고, 만료되거나 교체되면 새 키를 다시 입력합니다.
+Agent LLMs의 Bedrock 백엔드는 PC에서 아래 순서로 인증합니다. 모바일은 Bedrock API 키만 씁니다.
 
-## 왜 API 키만 지원하나
+| 순서 | 방식 | 설정 칸 | 플랫폼 |
+|---|---|---|---|
+| 1 | IAM Roles Anywhere | **Roles Anywhere 프로필** — `credential_process`로 `aws_signing_helper`를 실행하는 `~/.aws/config` 프로필 이름 | PC |
+| 2 | IAM Identity Center(SSO) | **SSO 프로필** — `~/.aws/config`의 SSO 프로필 이름. 미리 `aws sso login --profile <이름>` 필요 | PC |
+| 3 | Bedrock API 키(베어러 토큰) | **Bedrock API 키** | PC·모바일 |
 
-0.3.0에서 `~/.aws` 프로필 인증(SSO 포함)과 장기 액세스 키 인증을 제거했습니다.
+- 요청마다 앞 순서부터 시도합니다. 프로필 인증이 실패하면(인증서·helper 오류, SSO 세션 만료 등) 다음 방식으로 넘어가고, API 키로 넘어갈 때는 알림을 한 번 띄웁니다. 앞 방식이 다시 동작하면 자동으로 돌아옵니다.
+- 프로필이 동작하면 API 키 칸은 비워 둬도 됩니다.
+- 권한 거부·스로틀링처럼 요청 자체의 오류는 다른 방식으로 재시도하지 않습니다.
+- 설정 칸에 적은 프로필만 씁니다. `[default]` 프로필·환경변수·IAM 역할 같은 SDK 기본 자격증명 체인으로는 넘어가지 않습니다.
 
-| 방식 | 제거 사유 |
-|---|---|
-| AWS 액세스 키 | 장기 자격증명이라 위험이 가장 큽니다. 키가 비었을 때 SDK 기본 자격증명 체인으로 폴백해 의도하지 않은 계정으로 호출이 나가는 결함도 있었습니다 |
-| `~/.aws` 프로필 (SSO) | 기기마다 `aws sso login`이 필요하고 세션이 만료되면 다시 로그인해야 합니다 |
-| IAM Roles Anywhere | 기기마다 별도 X.509 인증서를 발급받아야 합니다. 인증서를 복사하면 기기 신원 구분이 무의미해지므로 설계상 공유할 수 없습니다 |
+예: Claude Code(`AWS_PROFILE`)나 Codex(`profile`)와 같은 Roles Anywhere 프로필을 쓰려면 그 프로필 이름을 그대로 넣으면 됩니다.
 
-Bedrock API 키는 기기당 한 번 입력하고, 만료 관리는 AWS 콘솔에서 합니다.
+```ini
+[profile coding-agents]
+credential_process = /path/to/aws_signing_helper credential-process --certificate /path/client.crt --private-key /path/client.key --trust-anchor-arn <trust-anchor-arn> --profile-arn <profile-arn> --role-arn <role-arn>
+```
+
+프로필 이름은 비밀값이 아니므로 볼트 `data.json`에 저장되어 동기화됩니다. 인증서와 SSO 세션은 각 PC에 있어야 합니다.
 
 ## 전제조건
 
@@ -73,9 +81,10 @@ AWS 콘솔 → Bedrock → **API keys**에서 발급합니다.
 
 1. 설정 → **Agent LLMs**를 엽니다
 2. **AI 백엔드**를 `Bedrock`으로 선택합니다
-3. **Bedrock API 키**에 발급받은 키를 붙여넣습니다 (눈 아이콘으로 값 확인 가능)
-4. **AWS 리전**에 사용할 리전을 입력합니다 (예: `ap-northeast-2`). 단기 키는 발급한 리전에서만 사용할 수 있습니다
-5. **Bedrock 채팅 모델**과 **Bedrock 임베딩 모델**을 드롭다운에서 고릅니다
+3. PC에서 프로필을 쓰려면 **Roles Anywhere 프로필**·**SSO 프로필**에 `~/.aws/config` 프로필 이름을 입력합니다. 둘 중 하나만 넣어도 됩니다
+4. 모바일이나 대체 수단이 필요하면 **Bedrock API 키**에 발급받은 키를 붙여넣습니다 (눈 아이콘으로 값 확인 가능)
+5. **AWS 리전**에 사용할 리전을 입력합니다 (예: `ap-northeast-2`). 단기 키는 발급한 리전에서만 사용할 수 있습니다
+6. **Bedrock 채팅 모델**과 **Bedrock 임베딩 모델**을 드롭다운에서 고릅니다
 
 모델 드롭다운이 비어 있으면 아래 문제 해결을 참고하세요. Obsidian 1.13 이상에서는 설정 검색으로 현재 백엔드의 설정 항목을 찾을 수도 있습니다.
 
@@ -113,9 +122,17 @@ PC의 새 API 키는 OS 키체인(macOS Keychain, Windows DPAPI, Linux libsecret
 
 ## 문제 해결
 
+### `Bedrock AWS 프로필 인증 실패: [프로필] …`
+
+PC에서 지정한 프로필이 모두 자격증명을 주지 못했고 API 키도 없을 때 나옵니다. 대괄호 안의 프로필별 원인을 확인하세요.
+
+- `Could not resolve credentials using profile` — `~/.aws/config`에 그 이름의 프로필이 없습니다
+- Roles Anywhere — `credential_process`의 `aws_signing_helper` 경로, 인증서·개인 키 경로, ARN을 확인하세요. 터미널에서 `aws sts get-caller-identity --profile <이름>`이 성공해야 합니다
+- SSO — 세션이 만료되었으면 `aws sso login --profile <이름>`을 다시 실행하세요
+
 ### `Bedrock API 키가 설정되지 않았습니다`
 
-설정에서 키를 입력하세요. 플러그인은 키가 비어 있을 때 **의도적으로 실패합니다** — AWS SDK의 기본 자격증명 체인으로 폴백하면 `~/.aws/credentials`의 `[default]` 프로필이나 환경변수, IAM 역할이 조용히 집혀 사용자가 선택하지 않은 계정으로 노트가 전송되고 과금될 수 있습니다.
+PC에서는 프로필을 설정하거나, 설정에서 키를 입력하세요. 플러그인은 인증값이 모두 비어 있을 때 **의도적으로 실패합니다** — AWS SDK의 기본 자격증명 체인으로 폴백하면 `~/.aws/credentials`의 `[default]` 프로필이나 환경변수, IAM 역할이 조용히 집혀 사용자가 선택하지 않은 계정으로 노트가 전송되고 과금될 수 있습니다.
 
 특히 재시작 후 이 오류가 나오면 앞서 자격증명 저장 실패 알림이 있었는지 확인하세요. PC는 OS 키체인과 Electron `userData`의 쓰기 권한을, 모바일은 앱 버전(1.11.4 이상)을 확인한 뒤 키를 다시 입력해 저장하세요.
 

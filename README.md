@@ -110,11 +110,11 @@ The sidebar icon, model list, and branding update dynamically when you switch.
 
 ### 2. Configure Credentials
 
-**Bedrock:** Enter a **Bedrock API key** (AWS Console → Bedrock → API keys) and set the AWS Region. The plugin does not refresh the key automatically; replace it when it expires.
+**Bedrock:** Set the AWS Region and configure authentication. On PC the plugin tries **Roles Anywhere profile → SSO profile → Bedrock API key** in that order (enter `~/.aws/config` profile names); mobile uses only the **Bedrock API key** (AWS Console → Bedrock → API keys). If a profile works, the API key can stay empty. The plugin does not refresh the API key automatically; replace it when it expires.
 
 Key issuance, model access, and using multiple machines: [Bedrock setup guide](docs/bedrock-setup-en.md)
 
-> AWS access key and `~/.aws` profile (including SSO) authentication were removed in 0.3.0. This backend uses the Bedrock API key entered in settings.
+> Only the profiles and key entered in settings are used. The plugin never falls back to the AWS SDK default credential chain (`[default]` profile, environment variables).
 
 Required IAM permissions:
 
@@ -122,7 +122,7 @@ Required IAM permissions:
 - `bedrock:InvokeModel`
 - `bedrock:ListFoundationModels`
 - `bedrock:ListInferenceProfiles`
-- `bedrock:CallWithBearerToken`
+- `bedrock:CallWithBearerToken` (API key only)
 
 **Gemini:** Enter your API key from [Google AI Studio](https://aistudio.google.com/).
 

@@ -15,6 +15,8 @@ const PROPER_NOUNS = new Set([
   "Obsidian", "Graph", "RAG", "Second", "Brain", "JSON", "To-Do", "ID", "Code",
   "Styler", "Tasks", "LLM", "LLMs", "Agent", "Inbox", "Wiki", "Markdown",
   "Bases", "Canvas", "Web", "Clipper", "Do", "Documentation", "P.A.R.A",
+  // AWS 제품명(Roles Anywhere)과 약어
+  "Anywhere", "SSO", "PC",
 ]);
 
 describe("설정 레이블 Sentence case (심사 기준)", () => {

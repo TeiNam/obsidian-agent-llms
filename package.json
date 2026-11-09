@@ -29,6 +29,7 @@
   },
   "dependencies": {
     "@aws-sdk/client-bedrock": "^3.997.0",
-    "@aws-sdk/client-bedrock-runtime": "^3.997.0"
+    "@aws-sdk/client-bedrock-runtime": "^3.997.0",
+    "@aws-sdk/credential-provider-ini": "^3.973.27"
   }
 }

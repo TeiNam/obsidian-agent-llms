@@ -2019,7 +2019,7 @@ export default class GeminiAssistantPlugin extends Plugin {
     const s = this.settings;
     switch (s.aiBackend) {
       case "bedrock":
-        return `bedrock:${digestSecret(s.bedrockApiKey)}:${s.awsRegion}`;
+        return `bedrock:${s.bedrockRolesAnywhereProfile}:${s.bedrockSsoProfile}:${digestSecret(s.bedrockApiKey)}:${s.awsRegion}`;
       case "openai":
         return `openai:${digestSecret(s.openaiApiKey)}:${s.openaiBaseUrl}`;
       case "ollama":
