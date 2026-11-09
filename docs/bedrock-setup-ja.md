@@ -1,20 +1,28 @@
-# Bedrock APIキー設定ガイド
+# Bedrock認証設定ガイド
 
 このガイドは**0.7.15**を対象としています。[インストールと基本操作](../README-JA.md)も参照してください。
 
-Agent LLMsのBedrockバックエンドは、**Bedrock APIキー（ベアラートークン）**1つで認証します。端末ごとにキーを入力し、有効期限切れや更新時には新しいキーを入力します。
+Agent LLMsのBedrockバックエンドは、PCでは次の順序で認証します。モバイルはBedrock APIキーのみを使います。
 
-## なぜAPIキーのみなのか
+| 順序 | 方式 | 設定項目 | プラットフォーム |
+|---|---|---|---|
+| 1 | IAM Roles Anywhere | **Roles Anywhereプロファイル** — `credential_process`で`aws_signing_helper`を実行する`~/.aws/config`のプロファイル名 | PC |
+| 2 | IAM Identity Center（SSO） | **SSOプロファイル** — `~/.aws/config`のSSOプロファイル名。先に`aws sso login --profile <名前>`が必要 | PC |
+| 3 | Bedrock APIキー（ベアラートークン） | **Bedrock APIキー** | PC・モバイル |
 
-0.3.0で`~/.aws`プロファイル認証（SSO含む）と長期アクセスキー認証を削除しました。
+- リクエストごとに先頭から試します。プロファイル認証が失敗すると（証明書・helperのエラー、SSOセッションの期限切れなど）次の方式に移り、APIキーへ切り替えるときに一度だけ通知します。前の方式が再び動作すれば自動的に戻ります。
+- プロファイルが動作すれば、APIキーは空のままで構いません。
+- アクセス拒否やスロットリングなどリクエスト自体のエラーは、別の方式で再試行しません。
+- 設定に入力したプロファイルだけを使います。`[default]`プロファイル・環境変数・IAMロールなどSDKのデフォルト認証チェーンにはフォールバックしません。
 
-| 方式 | 削除理由 |
-|---|---|
-| AWSアクセスキー | 長期資格情報のためリスクが最も大きい。キーが空のときSDKのデフォルト認証チェーンにフォールバックし、意図しないアカウントで呼び出される不具合もありました |
-| `~/.aws`プロファイル（SSO） | 端末ごとに`aws sso login`が必要で、セッションの期限切れ後には再ログインが必要です |
-| IAM Roles Anywhere | 端末ごとに別のX.509証明書を発行する必要があります。証明書をコピーすると端末識別が無意味になるため、設計上共有できません |
+例: Claude Code（`AWS_PROFILE`）やCodex（`profile`）と同じRoles Anywhereプロファイルを使うには、同じプロファイル名を入力します。
 
-Bedrock APIキーは端末ごとに一度入力すれば済み、有効期限管理はAWSコンソールで行います。
+```ini
+[profile coding-agents]
+credential_process = /path/to/aws_signing_helper credential-process --certificate /path/client.crt --private-key /path/client.key --trust-anchor-arn <trust-anchor-arn> --profile-arn <profile-arn> --role-arn <role-arn>
+```
+
+プロファイル名は秘密情報ではないため、ボルトの`data.json`に保存され同期されます。証明書とSSOセッションは各PCに必要です。
 
 ## 前提条件
 
@@ -73,9 +81,10 @@ AWSコンソール → Bedrock → **API keys**で発行します。
 
 1. 設定 → **Agent LLMs**を開きます
 2. **AIバックエンド**を`Bedrock`に設定
-3. **Bedrock APIキー**に発行したキーを貼り付け（目のアイコンで値を確認可能）
-4. **AWSリージョン**に使用するリージョンを入力（例: `ap-northeast-2`）。短期キーは発行したリージョンでのみ使用できます
-5. **Bedrock チャットモデル**と**Bedrock 埋め込みモデル**をドロップダウンから選択
+3. PCでプロファイルを使う場合は、**Roles Anywhereプロファイル**・**SSOプロファイル**に`~/.aws/config`のプロファイル名を入力します。どちらか一方だけでも構いません
+4. モバイルや代替手段が必要な場合は、**Bedrock APIキー**に発行したキーを貼り付け（目のアイコンで値を確認可能）
+5. **AWSリージョン**に使用するリージョンを入力（例: `ap-northeast-2`）。短期キーは発行したリージョンでのみ使用できます
+6. **Bedrock チャットモデル**と**Bedrock 埋め込みモデル**をドロップダウンから選択
 
 モデルドロップダウンが空の場合は、下記のトラブルシューティングを参照してください。Obsidian 1.13以降では、設定検索から現在のバックエンドの設定項目を探すこともできます。
 
@@ -112,6 +121,14 @@ PCの新しいAPIキーはOSキーチェーン（macOS Keychain、Windows DPAPI�
 同期ツールがドットで始まるファイルを除外するよう設定されている場合、インデックスは移動しません。その場合新しい端末で一度インデックス化してください。
 
 ## トラブルシューティング
+
+### `Bedrock AWSプロファイル認証に失敗しました: [プロファイル] …`
+
+PCで指定したプロファイルがすべて資格情報を返せず、APIキーも未設定のときに表示されます。角括弧内のプロファイルごとの原因を確認してください。
+
+- `Could not resolve credentials using profile` — `~/.aws/config`にその名前のプロファイルがありません
+- Roles Anywhere — `credential_process`の`aws_signing_helper`パス、証明書・秘密鍵のパス、ARNを確認してください。ターミナルで`aws sts get-caller-identity --profile <名前>`が成功する必要があります
+- SSO — セッションが期限切れなら`aws sso login --profile <名前>`を再実行してください
 
 ### `Bedrock API 키가 설정되지 않았습니다`（Bedrock APIキーが設定されていません）
 

@@ -110,11 +110,11 @@ Obsidian 1.13 이상의 설정 검색에서 현재 백엔드에 표시되는 설
 
 ### 2. 자격증명 구성
 
-**Bedrock:** AWS 콘솔(Bedrock → API keys)에서 발급한 **Bedrock API 키**를 입력하고 AWS Region을 설정합니다. 플러그인은 키를 자동 갱신하지 않으므로 만료되면 교체해야 합니다.
+**Bedrock:** AWS Region을 설정하고 인증을 구성합니다. PC는 **Roles Anywhere 프로필 → SSO 프로필 → Bedrock API 키** 순서로 시도하며(`~/.aws/config` 프로필 이름 입력), 모바일은 **Bedrock API 키**(AWS 콘솔 → Bedrock → API keys)만 씁니다. 프로필이 동작하면 API 키는 비워 둬도 됩니다. 플러그인은 API 키를 자동 갱신하지 않으므로 만료되면 교체해야 합니다.
 
 키 발급, 모델 접근 확인, 여러 기기에서 사용하기: [Bedrock 설정 가이드](docs/bedrock-setup-kr.md)
 
-> 0.3.0에서 AWS 액세스 키와 `~/.aws` 프로필(SSO 포함) 인증을 제거했습니다. 이 백엔드는 설정에 입력한 Bedrock API 키를 사용합니다.
+> 설정에 입력한 프로필과 키만 사용합니다. `[default]` 프로필·환경변수 같은 AWS SDK 기본 자격증명 체인으로는 넘어가지 않습니다.
 
 필수 IAM 권한:
 
@@ -122,7 +122,7 @@ Obsidian 1.13 이상의 설정 검색에서 현재 백엔드에 표시되는 설
 - `bedrock:InvokeModel`
 - `bedrock:ListFoundationModels`
 - `bedrock:ListInferenceProfiles`
-- `bedrock:CallWithBearerToken`
+- `bedrock:CallWithBearerToken` (API 키 사용 시)
 
 **Gemini:** [Google AI Studio](https://aistudio.google.com/)에서 발급한 API 키 입력
 
