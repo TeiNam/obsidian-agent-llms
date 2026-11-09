@@ -1,20 +1,28 @@
-# Bedrock API Key Setup Guide
+# Bedrock Authentication Setup Guide
 
 This guide describes **0.7.15**. See the [README](../README.md) for installation and basic usage.
 
-The Agent LLMs Bedrock backend authenticates with a single **Bedrock API key (bearer token)**. Enter the key on each device and replace it when it expires or is rotated.
+On PC, the Agent LLMs Bedrock backend authenticates in the order below. Mobile uses only the Bedrock API key.
 
-## Why API Keys Only
+| Order | Method | Setting | Platform |
+|---|---|---|---|
+| 1 | IAM Roles Anywhere | **Roles Anywhere profile** — name of a `~/.aws/config` profile that runs `aws_signing_helper` via `credential_process` | PC |
+| 2 | IAM Identity Center (SSO) | **SSO profile** — name of an SSO profile in `~/.aws/config`. Run `aws sso login --profile <name>` first | PC |
+| 3 | Bedrock API key (bearer token) | **Bedrock API key** | PC and mobile |
 
-Version 0.3.0 removed `~/.aws` profile authentication (including SSO) and long-term access key authentication.
+- Each request tries the methods in order. If profile authentication fails (certificate or helper error, expired SSO session, and so on), the next method is used, and a notice is shown once when switching to the API key. When an earlier method works again, the plugin switches back automatically.
+- If a profile works, you can leave the API key empty.
+- Request errors such as access denied or throttling are not retried with another method.
+- Only the profiles entered in settings are used. The plugin never falls back to the SDK default credential chain (`[default]` profile, environment variables, IAM roles).
 
-| Method | Why it was removed |
-|---|---|
-| AWS access keys | Long-lived credentials with the largest blast radius. When the key field was empty, the SDK's default credential chain would fall back and silently call with an unintended account. |
-| `~/.aws` profiles (SSO) | Require `aws sso login` on each device and another login when the session expires. |
-| IAM Roles Anywhere | Require issuing a separate X.509 certificate per device. By design, certificates cannot be shared, because copying them makes device identity meaningless. |
+Example: to share the Roles Anywhere profile used by Claude Code (`AWS_PROFILE`) or Codex (`profile`), enter the same profile name.
 
-Bedrock API keys are entered once per device. Expiration is managed in the AWS Console.
+```ini
+[profile coding-agents]
+credential_process = /path/to/aws_signing_helper credential-process --certificate /path/client.crt --private-key /path/client.key --trust-anchor-arn <trust-anchor-arn> --profile-arn <profile-arn> --role-arn <role-arn>
+```
+
+Profile names are not secrets, so they are stored in the vault `data.json` and synced. Certificates and SSO sessions must exist on each PC.
 
 ## Prerequisites
 
@@ -73,9 +81,10 @@ Keys are shown only once, immediately after issuance. Copy it then.
 
 1. Open Settings → **Agent LLMs**
 2. Set **AI Backend** to `Bedrock`
-3. Paste the issued key into **Bedrock API Key** (the eye icon reveals the value)
-4. Enter your target **AWS Region** (e.g., `ap-northeast-2`). Short-term keys work only in the region where they were generated
-5. Choose from the **Bedrock Chat Model** and **Bedrock Embedding Model** dropdowns
+3. To use profiles on PC, enter `~/.aws/config` profile names in **Roles Anywhere profile** and/or **SSO profile**. One is enough
+4. For mobile or as a fallback, paste the issued key into **Bedrock API Key** (the eye icon reveals the value)
+5. Enter your target **AWS Region** (e.g., `ap-northeast-2`). Short-term keys work only in the region where they were generated
+6. Choose from the **Bedrock Chat Model** and **Bedrock Embedding Model** dropdowns
 
 If the model dropdowns are empty, see Troubleshooting below. Obsidian 1.13+ settings search can also find the settings shown for the current backend.
 
@@ -113,9 +122,17 @@ If your sync tool is configured to exclude dotfiles, the index will not move. In
 
 ## Troubleshooting
 
+### `Bedrock AWS profile authentication failed: [profile] …`
+
+On PC, every configured profile failed to provide credentials and no API key is set. Check the per-profile cause in brackets.
+
+- `Could not resolve credentials using profile` — no profile with that name exists in `~/.aws/config`
+- Roles Anywhere — check the `aws_signing_helper` path in `credential_process`, the certificate and private key paths, and the ARNs. `aws sts get-caller-identity --profile <name>` must succeed in a terminal
+- SSO — if the session expired, run `aws sso login --profile <name>` again
+
 ### `Bedrock API 키가 설정되지 않았습니다` (Bedrock API key is not configured)
 
-Enter the key in settings. The plugin **intentionally fails** when the key is empty — falling back to the AWS SDK's default credential chain could silently pick up the `[default]` profile in `~/.aws/credentials`, environment variables, or IAM roles, sending your notes and charges to an account you did not choose.
+On PC, configure a profile or enter the key in settings. The plugin **intentionally fails** when all credentials are empty — falling back to the AWS SDK's default credential chain could silently pick up the `[default]` profile in `~/.aws/credentials`, environment variables, or IAM roles, sending your notes and charges to an account you did not choose.
 
 If this appears after restarting, check whether a credential-save failure notice appeared earlier. On desktop, check the OS keychain and write access to Electron's `userData` directory; on mobile, check the app version (1.11.4+). Then enter and save the key again.
 

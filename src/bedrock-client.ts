@@ -32,6 +32,14 @@ import {
 } from "./provider-utils";
 import { buildSystemPromptSegments } from "./system-prompt";
 import { noticeI18n } from "./notice-i18n";
+import { Notice, Platform } from "obsidian";
+import {
+  createProfileChainProvider,
+  loadIniProfile,
+  profileCandidates,
+  runWithAuthFallback,
+  type AwsCredentials,
+} from "./bedrock-auth";
 
 /** 임베딩 입력 최대 글자 수 (Titan v2 8192 토큰 기준의 보수적 상한). */
 const EMBEDDING_MAX_CHARS = 20000;
@@ -46,6 +54,9 @@ const EMBEDDING_MAX_CHARS = 20000;
  * 막아뒀는데도 환경에 남은 다른 계정의 토큰으로 요청이 나간다.
  */
 const SIGV4_AUTH_SCHEME = "aws.auth#sigv4";
+
+/** 인증 전환 알림 표시 시간(ms). */
+const NOTICE_DURATION_MS = 8000;
 
 /** 베어러 토큰 스킴 식별자. Bedrock API 키 인증에서만 사용한다. */
 const BEARER_AUTH_SCHEME = "httpBearerAuth";
@@ -111,7 +122,10 @@ export function extractEmbedding(modelId: string, body: unknown): number[] | nul
 }
 
 /**
- * Bedrock 클라이언트 설정을 구성한다. API 키(베어러 토큰) 단독 인증만 지원한다.
+ * Bedrock 클라이언트 설정을 구성한다.
+ *
+ * `profileProvider`가 있으면 AWS 프로필(Roles Anywhere·SSO) 자격증명으로 SigV4 서명한다.
+ * 없으면 API 키(베어러 토큰)를 쓴다. 우선순위 결정은 BedrockClient가 한다.
  *
  * 키가 비어 있으면 fail-closed로 처리한다. SDK 기본 자격증명 체인으로 폴백하면
  * 사용자가 선택하지 않은 AWS 계정으로 프롬프트가 전송되고 과금될 수 있기 때문이다.
@@ -128,9 +142,15 @@ export function extractEmbedding(modelId: string, body: unknown): number[] | nul
  * 순수 함수로 분리해 단위 테스트가 가능하게 한다(SDK 인스턴스화 없이 검증).
  */
 export function buildBedrockClientConfig(
-  settings: GeminiAssistantSettings
+  settings: GeminiAssistantSettings,
+  profileProvider?: () => Promise<AwsCredentials>
 ): Record<string, unknown> {
   const config: Record<string, unknown> = { region: settings.awsRegion };
+
+  if (profileProvider) {
+    // 스킴 고정 — 환경의 AWS_BEARER_TOKEN_BEDROCK이 프로필을 우회하지 못하게 한다.
+    return { ...config, credentials: profileProvider, authSchemePreference: [SIGV4_AUTH_SCHEME] };
+  }
 
   // 손상된 data.json(수동 편집·동기화 충돌)에 문자열이 아닌 값이 들어올 수 있다.
   // `?.`는 null/undefined만 막으므로 숫자·객체에서 .trim()이 TypeError를 던지고,
@@ -155,28 +175,67 @@ export function buildBedrockClientConfig(
 
 // Bedrock API 클라이언트 (IAiClient 인터페이스 구현)
 export class BedrockClient implements IAiClient {
-  private client: BedrockRuntimeClient;
+  private client!: BedrockRuntimeClient;
+  /** 프로필 인증이 실패했을 때 쓸 베어러 토큰 클라이언트. 프로필과 키가 모두 있을 때만 존재. */
+  private bearerClient: BedrockRuntimeClient | null = null;
   private settings: GeminiAssistantSettings;
+  /** 베어러 토큰으로 넘어간 상태. 전환 알림을 한 번만 띄우고, 프로필이 다시 성공하면 해제한다. */
+  private isUsingBearerFallback = false;
 
   constructor(settings: GeminiAssistantSettings) {
     this.settings = settings;
-    this.client = this.createClient();
+    this.createClients();
   }
 
   // 설정 변경 시 클라이언트 재생성
   updateSettings(settings: GeminiAssistantSettings) {
     this.settings = settings;
-    this.client = this.createClient();
+    this.isUsingBearerFallback = false;
+    this.createClients();
   }
 
-  /** 인증 방식별 클라이언트 설정 구성 (buildBedrockClientConfig에 위임) */
-  private buildClientConfig(): Record<string, unknown> {
-    return buildBedrockClientConfig(this.settings);
+  /**
+   * 인증 우선순위(PC): Roles Anywhere 프로필 → SSO 프로필 → 베어러 토큰.
+   * 모바일은 프로필이 없으므로 베어러 토큰만 쓴다.
+   * 반환값: [기본 설정, 베어러 대체 설정(없으면 null)]
+   */
+  private buildClientConfigs(): [Record<string, unknown>, Record<string, unknown> | null] {
+    const bearerConfig = buildBedrockClientConfig(this.settings);
+    const profiles = profileCandidates(this.settings, Platform.isDesktopApp);
+    if (profiles.length === 0) return [bearerConfig, null];
+
+    const t = noticeI18n(this.settings.language);
+    const provider = createProfileChainProvider(profiles, loadIniProfile, t.errBedrockProfileAuth);
+    const hasApiKey = bearerConfig.token !== undefined;
+    return [buildBedrockClientConfig(this.settings, provider), hasApiKey ? bearerConfig : null];
   }
 
-  private createClient(): BedrockRuntimeClient {
-    const config = this.buildClientConfig();
-    return new BedrockRuntimeClient(config);
+  private createClients(): void {
+    const [primary, fallback] = this.buildClientConfigs();
+    this.client = new BedrockRuntimeClient(primary);
+    this.bearerClient = fallback ? new BedrockRuntimeClient(fallback) : null;
+  }
+
+  /** 프로필 인증이 실패하면 베어러 토큰 클라이언트로 한 번 더 실행한다 (런타임 API). */
+  private sendRuntime<T>(run: (client: BedrockRuntimeClient) => Promise<T>): Promise<T> {
+    return this.withAuthFallback(this.client, this.bearerClient, run);
+  }
+
+  private async withAuthFallback<C, T>(
+    primary: C,
+    fallback: C | null,
+    run: (client: C) => Promise<T>
+  ): Promise<T> {
+    let isFallback = false;
+    const result = await runWithAuthFallback(primary, fallback, run, () => {
+      isFallback = true;
+      // 인덱싱처럼 동시 요청이 몰려도 알림은 한 번만 — 플래그를 즉시 세운다.
+      if (this.isUsingBearerFallback) return;
+      this.isUsingBearerFallback = true;
+      new Notice(noticeI18n(this.settings.language).bedrockAuthFallback, NOTICE_DURATION_MS);
+    });
+    if (!isFallback) this.isUsingBearerFallback = false;
+    return result;
   }
 
   /**
@@ -198,9 +257,8 @@ export class BedrockClient implements IAiClient {
       return this.listEmbeddingModels();
     }
     try {
-      const controlClient = this.createControlClient();
-      const resp = await controlClient.send(
-        new ListInferenceProfilesCommand({ typeEquals: "SYSTEM_DEFINED" })
+      const resp = await this.sendControl((client) =>
+        client.send(new ListInferenceProfilesCommand({ typeEquals: "SYSTEM_DEFINED" }))
       );
 
       if (!resp.inferenceProfileSummaries) return [];
@@ -249,9 +307,8 @@ export class BedrockClient implements IAiClient {
   // 모델(예: amazon.titan-embed-text-v2:0, cohere.embed-*)만 ModelInfo로 매핑한다.
   private async listEmbeddingModels(): Promise<ModelInfo[]> {
     try {
-      const controlClient = this.createControlClient();
-      const resp = await controlClient.send(
-        new ListFoundationModelsCommand({ byOutputModality: "EMBEDDING" })
+      const resp = await this.sendControl((client) =>
+        client.send(new ListFoundationModelsCommand({ byOutputModality: "EMBEDDING" }))
       );
 
       const summaries = resp.modelSummaries ?? [];
@@ -280,9 +337,13 @@ export class BedrockClient implements IAiClient {
   }
 
   // Bedrock 컨트롤 플레인 클라이언트 생성 (모델 목록 조회용)
-  private createControlClient(): BedrockControlClient {
-    const config = this.buildClientConfig();
-    return new BedrockControlClient(config);
+  private sendControl<T>(run: (client: BedrockControlClient) => Promise<T>): Promise<T> {
+    const [primary, fallback] = this.buildClientConfigs();
+    return this.withAuthFallback(
+      new BedrockControlClient(primary),
+      fallback ? new BedrockControlClient(fallback) : null,
+      run
+    );
   }
 
   // Converse API 입력 구성
@@ -372,9 +433,7 @@ export class BedrockClient implements IAiClient {
     // 요청 본문은 모델별 추론 강도 필드까지 동적으로 조립하므로 SDK 입력 타입과
     // 정적으로 맞물리지 않는다. 단정은 이 경계 한 곳에서만 한다.
     const command = new ConverseStreamCommand(input as unknown as ConverseStreamCommandInput);
-    const response = await this.client.send(command, {
-      abortSignal,
-    });
+    const response = await this.sendRuntime((client) => client.send(command, { abortSignal }));
 
     const contentBlocks: ContentBlock[] = [];
     let currentText = "";
@@ -466,9 +525,7 @@ export class BedrockClient implements IAiClient {
     abortSignal?: AbortSignal
   ): Promise<ConverseResult> {
     const command = new ConverseCommand(input as unknown as ConverseCommandInput);
-    const response = await this.client.send(command, {
-      abortSignal,
-    });
+    const response = await this.sendRuntime((client) => client.send(command, { abortSignal }));
 
     const contentBlocks: ContentBlock[] = [];
     const stopReason = response.stopReason || "end_turn";
@@ -513,7 +570,7 @@ export class BedrockClient implements IAiClient {
       body: JSON.stringify(buildEmbeddingRequest(modelId, truncated)),
     });
 
-    const response = await this.client.send(command);
+    const response = await this.sendRuntime((client) => client.send(command));
     const body: unknown = JSON.parse(new TextDecoder().decode(response.body));
     const embedding = extractEmbedding(modelId, body);
     if (embedding === null) {
@@ -540,7 +597,7 @@ export class BedrockClient implements IAiClient {
       ...this.effortRequestFields("minimal"),
     };
     const command = new ConverseCommand(input as unknown as ConverseCommandInput);
-    const response = await this.client.send(command);
+    const response = await this.sendRuntime((client) => client.send(command));
     const output = response.output;
     if (output && "message" in output && output.message?.content) {
       for (const block of output.message.content) {

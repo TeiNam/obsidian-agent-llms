@@ -53,7 +53,12 @@ export const I18N = {
     apiKeyPlaceholder: "Enter Gemini API key",
     // Bedrock 자격증명
     bedrockApiKeyLabel: "Bedrock API key",
-    bedrockApiKeyDesc: "Long-term Bedrock API key for authentication. Get your API key from AWS Bedrock console.",
+    bedrockApiKeyDesc: "Bedrock API key (bearer token). Used on mobile, or on PC when the AWS profiles above are empty or fail. Leave empty if a profile works.",
+    bedrockRolesAnywhereProfileLabel: "Roles Anywhere profile (PC)",
+    bedrockRolesAnywhereProfileDesc: "~/.aws/config profile that runs aws_signing_helper via credential_process. Tried first.",
+    bedrockSsoProfileLabel: "SSO profile (PC)",
+    bedrockSsoProfileDesc: "~/.aws/config SSO profile. Tried second; run `aws sso login --profile <name>` first.",
+    bedrockProfilePlaceholder: "Profile name",
     bedrockApiKeyPlaceholder: "Enter Bedrock API key",
     awsRegionLabel: "AWS region",
     awsRegionDesc: "AWS Region for Bedrock API",
@@ -249,7 +254,12 @@ export const I18N = {
     apiKeyPlaceholder: "Gemini API 키 입력",
     // Bedrock 자격증명
     bedrockApiKeyLabel: "Bedrock API 키",
-    bedrockApiKeyDesc: "인증에 사용할 Bedrock 장기 API 키. AWS Bedrock 콘솔에서 API 키를 발급받으세요.",
+    bedrockApiKeyDesc: "Bedrock API 키(베어러 토큰). 모바일, 또는 PC에서 위 AWS 프로필이 비었거나 실패할 때 씁니다. 프로필이 동작하면 비워 둬도 됩니다.",
+    bedrockRolesAnywhereProfileLabel: "Roles Anywhere 프로필 (PC)",
+    bedrockRolesAnywhereProfileDesc: "credential_process로 aws_signing_helper를 실행하는 ~/.aws/config 프로필. 가장 먼저 시도합니다.",
+    bedrockSsoProfileLabel: "SSO 프로필 (PC)",
+    bedrockSsoProfileDesc: "~/.aws/config의 SSO 프로필. 두 번째로 시도합니다. 먼저 `aws sso login --profile <이름>`을 실행하세요.",
+    bedrockProfilePlaceholder: "프로필 이름",
     bedrockApiKeyPlaceholder: "Bedrock API 키 입력",
     awsRegionLabel: "AWS 리전",
     awsRegionDesc: "Bedrock API용 AWS 리전",
@@ -445,7 +455,12 @@ export const I18N = {
     apiKeyPlaceholder: "Gemini APIキーを入力",
     // Bedrock 資格情報
     bedrockApiKeyLabel: "Bedrock APIキー",
-    bedrockApiKeyDesc: "認証に使用するBedrockの長期APIキー。AWS Bedrockコンソールから APIキーを取得してください。",
+    bedrockApiKeyDesc: "Bedrock APIキー(ベアラートークン)。モバイル、またはPCで上のAWSプロファイルが空か失敗したときに使います。プロファイルが動作すれば空のままで構いません。",
+    bedrockRolesAnywhereProfileLabel: "Roles Anywhereプロファイル (PC)",
+    bedrockRolesAnywhereProfileDesc: "credential_processでaws_signing_helperを実行する~/.aws/configのプロファイル。最初に試します。",
+    bedrockSsoProfileLabel: "SSOプロファイル (PC)",
+    bedrockSsoProfileDesc: "~/.aws/configのSSOプロファイル。2番目に試します。先に`aws sso login --profile <名前>`を実行してください。",
+    bedrockProfilePlaceholder: "プロファイル名",
     bedrockApiKeyPlaceholder: "Bedrock APIキーを入力",
     awsRegionLabel: "AWSリージョン",
     awsRegionDesc: "Bedrock API用 AWSリージョン",
@@ -837,6 +852,28 @@ export class GeminiSettingTab extends PluginSettingTab {
     } else if (this.plugin.settings.aiBackend === "bedrock") {
       // Bedrock (AWS) 자격증명 설정
       addHeading("AWS Bedrock");
+
+      // AWS 프로필 인증은 PC 전용 — 모바일에는 ~/.aws와 credential_process 실행 환경이 없다.
+      if (Platform.isDesktopApp) {
+        const profileFields = [
+          ["bedrockRolesAnywhereProfile", t.bedrockRolesAnywhereProfileLabel, t.bedrockRolesAnywhereProfileDesc],
+          ["bedrockSsoProfile", t.bedrockSsoProfileLabel, t.bedrockSsoProfileDesc],
+        ] as const;
+        for (const [field, label, desc] of profileFields) {
+          addSetting(label, desc, (setting) => {
+            setting.addText((text) =>
+              text
+                .setPlaceholder(t.bedrockProfilePlaceholder)
+                .setValue(this.plugin.settings[field])
+                .onChange(async (value) => {
+                  this.plugin.settings[field] = value.trim();
+                  await this.plugin.saveSettings();
+                  this.scheduleModelReload();
+                })
+            );
+          });
+        }
+      }
 
       addSetting(t.bedrockApiKeyLabel, t.bedrockApiKeyDesc, (setting) => {
         setting.addText((text) => {

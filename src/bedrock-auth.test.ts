@@ -152,3 +152,13 @@ describe("filterStaleCredentials: 구 사용자 보호", () => {
     expect(credentials.bedrockApiKey).toBe("KEY");
   });
 });
+
+describe("buildBedrockClientConfig: AWS 프로필 인증", () => {
+  it("프로필 공급자가 있으면 그것으로 SigV4 서명하고 베어러 토큰은 쓰지 않는다", () => {
+    const provider = async () => ({ accessKeyId: "A", secretAccessKey: "S" });
+    const config = buildBedrockClientConfig(makeSettings({ bedrockApiKey: "KEY123" }), provider);
+    expect(config.credentials).toBe(provider);
+    expect(config.authSchemePreference).toEqual(["aws.auth#sigv4"]);
+    expect(config.token).toBeUndefined();
+  });
+});

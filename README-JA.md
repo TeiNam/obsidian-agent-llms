@@ -110,11 +110,11 @@ Obsidian 1.13以降の設定検索で現在のバックエンドに表示され�
 
 ### 2. 認証情報を設定
 
-**Bedrock:** AWSコンソール(Bedrock → API keys)で発行した**Bedrock APIキー**を入力し、AWSリージョンを設定します。プラグインはキーを自動更新しないため、期限切れ後は交換してください。
+**Bedrock:** AWSリージョンを設定し、認証を構成します。PCは**Roles Anywhereプロファイル → SSOプロファイル → Bedrock APIキー**の順に試し(`~/.aws/config`のプロファイル名を入力)、モバイルは**Bedrock APIキー**(AWSコンソール → Bedrock → API keys)のみを使います。プロファイルが動作すればAPIキーは空のままで構いません。プラグインはAPIキーを自動更新しないため、期限切れ後は交換してください。
 
 キーの発行、モデルアクセスの確認、複数端末での利用: [Bedrock セットアップガイド](docs/bedrock-setup-ja.md)
 
-> 0.3.0でAWSアクセスキーと`~/.aws`プロファイル(SSO含む)認証を削除しました。このバックエンドは設定に入力したBedrock APIキーを使います。
+> 設定に入力したプロファイルとキーだけを使います。`[default]`プロファイル・環境変数などAWS SDKのデフォルト認証チェーンにはフォールバックしません。
 
 必要なIAM権限:
 
@@ -122,7 +122,7 @@ Obsidian 1.13以降の設定検索で現在のバックエンドに表示され�
 - `bedrock:InvokeModel`
 - `bedrock:ListFoundationModels`
 - `bedrock:ListInferenceProfiles`
-- `bedrock:CallWithBearerToken`
+- `bedrock:CallWithBearerToken`(APIキー使用時のみ)
 
 **Gemini:** [Google AI Studio](https://aistudio.google.com/)からAPIキーを入力
 

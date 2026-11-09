@@ -7,6 +7,12 @@
 > **에디션 안내**: 이 프로젝트는 **AWS Bedrock · Google Gemini · OpenAI · Ollama** 멀티프로바이더 백엔드를 지원합니다.
 > 과거 `kiro-edition` 브랜치(Assistant Kiro)는 0.3.0에서 main으로 통합되었습니다.
 
+## [Unreleased]
+
+### Added
+
+- PC의 Bedrock 백엔드가 `~/.aws/config` 프로필로 인증한다. **Roles Anywhere 프로필 → SSO 프로필 → Bedrock API 키** 순서로 시도하고, 프로필 인증이 실패하면 다음 방식으로 넘어가며 API 키로 전환할 때 알림을 띄운다. 프로필이 동작하면 API 키는 비워 둬도 된다. 모바일은 API 키만 쓴다. 설정에 적은 프로필만 쓰며 SDK 기본 자격증명 체인으로는 넘어가지 않는다.
+
 ## [0.7.15] - 2026-10-09
 
 ### Added
