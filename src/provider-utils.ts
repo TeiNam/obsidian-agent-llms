@@ -1045,3 +1045,24 @@ export function toOllamaMessages(messages: ConverseMessage[]): unknown[] {
 
 	return result;
 }
+
+/** Bedrock 추론 프로파일 이름 앞의 라우팅 범위 표기(예: "Global ", "GLOBAL "). */
+const PROFILE_SCOPE_PREFIX = /^(global|us|eu|apac|jp|au)\s+/i;
+
+/**
+ * 모델 이름 앞의 벤더 표기. Claude는 계열 별칭(Opus·Sonnet 등)만 남기고,
+ * GPT는 "GPT-6.1 Sol"처럼 제품명을 유지한다.
+ */
+const VENDOR_PREFIX =
+	/^(anthropic\s+claude|claude|anthropic|openai|moonshot\s+ai|xai|z\.ai|amazon|cohere|twelvelabs|meta|mistral\s+ai|deepseek|qwen)\s+/i;
+
+/**
+ * 채팅창 하단에 쓸 짧은 모델 이름을 만든다.
+ * 예: "Global Anthropic Claude Opus 5.5" → "Opus 5.5", "Global OpenAI GPT-6.1 Sol" → "GPT-6.1 Sol".
+ * 벤더 표기만 남는 등 지울 수 없는 이름이면 원래 이름을 돌려준다.
+ */
+export function shortModelName(name: string): string {
+	const trimmed = (name ?? "").trim();
+	const short = trimmed.replace(PROFILE_SCOPE_PREFIX, "").replace(VENDOR_PREFIX, "").trim();
+	return short || trimmed;
+}
