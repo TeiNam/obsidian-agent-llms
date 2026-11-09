@@ -160,6 +160,8 @@ Mobile does not run local MCP servers, so this toggle is available only for Gemi
 
 Settings → Agent LLMs → **Generation Settings** → **Reasoning Effort** sets how much reasoning the model does.
 
+The current value is shown next to the model name at the bottom of the chat (for example, `Claude Opus 5.5 · high`). Type `/effort high` in chat to change it, or `/effort` alone to see the current value and the levels the model accepts. The command is not sent to the model or saved in the conversation, and the change applies from the next request.
+
 Allowed values depend on the selected provider and model (for example, Anthropic models on Bedrock accept `xhigh` and `max`; Gemini Pro models accept only `low` and `high`). The setting is only shown for models that support reasoning effort, and requests to models that do not support it fall back to the provider's default sampling behavior. If you switch to a model that does not allow your saved value, it is clamped to the nearest allowed level.
 
 ### Graph RAG Vault Search

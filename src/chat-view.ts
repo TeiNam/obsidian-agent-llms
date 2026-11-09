@@ -1,6 +1,6 @@
 import { Component, ItemView, WorkspaceLeaf, MarkdownRenderer, setIcon, MarkdownView, TFile, FuzzySuggestModal, Notice, Platform } from "obsidian";
 import type GeminiAssistantPlugin from "./main";
-import type { ChatMessage, ConverseMessage, ContentBlockToolUse, ModelInfo, ChatSession } from "./types";
+import type { ChatMessage, ConverseMessage, ContentBlockToolUse, ModelInfo, ChatSession, EffortLevel } from "./types";
 import { TOOLS } from "./obsidian-tools";
 import { BRANDING } from "./branding";
 import { trimConversationHistory, CHARS_PER_TOKEN } from "./token-trimmer";
@@ -17,6 +17,7 @@ import { VIEW_I18N, type ViewLang } from "./chat-view-i18n";
 // 모델 변경 시 effort 허용 집합 보정에 사용
 import {
   clampEffort,
+  effortLevels,
   supportsAttachmentFormat,
   attachmentKindOf,
   backendsSupportingFormat,
@@ -32,6 +33,7 @@ import { createTodoNote } from "./todo-manager";
 import { SessionListModal } from "./modals/session-list-modal";
 import { ToolConfirmModal } from "./modals/tool-confirm-modal";
 import { isRetrospectiveCommand } from "./retrospective-command";
+import { parseEffortCommand, resolveEffortCommand } from "./effort-command";
 import { generateRetrospective } from "./retrospective-service";
 import { voidAsync } from "./async-utils";
 
@@ -443,7 +445,16 @@ export class ChatView extends ItemView {
 
   private async handleSend(): Promise<void> {
     const text = this.inputEl.value.trim();
-    if (!text || this.isGenerating) return;
+    if (!text) return;
+
+    // /effort는 로컬 명령 — AI에 보내지 않고 기록에도 남기지 않으므로 생성 중에도 받는다.
+    const effortArg = parseEffortCommand(text);
+    if (effortArg !== null) {
+      this.inputEl.value = "";
+      await this.handleEffortCommand(effortArg);
+      return;
+    }
+    if (this.isGenerating) return;
 
     this.inputEl.value = "";
     this.inputEl.setCssStyles({ height: "auto" });
@@ -1309,10 +1320,46 @@ export class ChatView extends ItemView {
   }
 
   // 모델 라벨 업데이트 (현재 선택된 모델 표시)
-  private updateModelLabel(): void {
+  /** 현재 모델이 받는 effort 레벨과 실제로 전송되는 값. 미지원 모델이면 allowed가 빈 배열. */
+  private getEffortState(): { allowed: readonly EffortLevel[]; current: EffortLevel } {
+    const { aiBackend, effort } = this.plugin.settings;
     const modelId = this.getActiveChatModel();
-    const displayName = this.getModelDisplayName(modelId);
-    this.modelLabelEl.setText(displayName);
+    return {
+      allowed: effortLevels(aiBackend, modelId),
+      current: clampEffort(aiBackend, modelId, effort),
+    };
+  }
+
+  /** 모델명 옆에 현재 effort를 붙여 표시한다 (설정 변경 시 main에서도 호출). */
+  updateModelLabel(): void {
+    // 뷰가 열리기 전(onOpen 이전)에 설정 저장이 호출될 수 있다.
+    if (!this.modelLabelEl) return;
+    const displayName = this.getModelDisplayName(this.getActiveChatModel());
+    const { allowed, current } = this.getEffortState();
+    this.modelLabelEl.setText(allowed.length > 0 ? `${displayName} · ${current}` : displayName);
+  }
+
+  /** `/effort [레벨]` 처리: 인자가 없으면 현재 값을 보여주고, 있으면 검증 후 저장한다. */
+  private async handleEffortCommand(arg: string): Promise<void> {
+    const { allowed, current } = this.getEffortState();
+    const result = resolveEffortCommand(arg, allowed, current);
+    const allowedText = allowed.join(", ");
+    switch (result.kind) {
+      case "unsupported":
+        new Notice(this.t.effortUnsupported);
+        return;
+      case "show":
+        new Notice(this.t.effortCurrent(result.current, allowedText));
+        return;
+      case "invalid":
+        new Notice(this.t.effortInvalid(result.input, allowedText));
+        return;
+      case "set":
+        this.plugin.settings.effort = result.level;
+        await this.plugin.saveSettings();
+        this.updateModelLabel();
+        new Notice(this.t.effortChanged(result.level));
+    }
   }
 
   // MCP 연결 상태 인디케이터 업데이트

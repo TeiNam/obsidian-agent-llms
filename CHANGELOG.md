@@ -7,6 +7,12 @@
 > **에디션 안내**: 이 프로젝트는 **AWS Bedrock · Google Gemini · OpenAI · Ollama** 멀티프로바이더 백엔드를 지원합니다.
 > 과거 `kiro-edition` 브랜치(Assistant Kiro)는 0.3.0에서 main으로 통합되었습니다.
 
+## [Unreleased]
+
+### Added
+
+- 채팅창 하단 모델명 옆에 현재 추론 강도(effort)를 표시한다. 채팅에서 `/effort <레벨>`로 바꾸고, `/effort`만 입력하면 현재 값과 모델이 받는 레벨을 보여준다. 명령은 모델에 보내지 않고 대화 기록에도 남기지 않으며, 모델이 받지 않는 레벨은 바꾸지 않는다.
+
 ## [0.7.15] - 2026-10-09
 
 ### Added

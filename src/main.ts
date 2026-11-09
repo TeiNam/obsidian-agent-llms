@@ -1999,6 +1999,10 @@ export default class GeminiAssistantPlugin extends Plugin {
       this.lastAccountScope = scope;
       this.refreshChatModelLists();
     }
+    // 설정 탭에서 effort·모델을 바꿔도 채팅창 하단 표시가 바로 따라오게 한다.
+    for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE)) {
+      (leaf.view as { updateModelLabel?: () => void }).updateModelLabel?.();
+    }
     // 브랜딩을 현재 백엔드에 맞게 갱신
     updateBranding(this.settings.aiBackend);
     // 설정 변경이 Graph RAG 검색에도 즉시 반영되도록 인덱서 옵션을 재적용한다 (견고성 목적)
