@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 
-vi.mock("obsidian", () => ({ requestUrl: vi.fn() }));
+vi.mock("obsidian", () => ({
+  requestUrl: vi.fn(),
+  Notice: class {},
+  Platform: { isMobileApp: false, isDesktopApp: true },
+}));
 
 import { GeminiClient } from "./gemini-client";
 import { BedrockClient } from "./bedrock-client";

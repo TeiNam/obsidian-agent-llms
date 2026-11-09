@@ -119,6 +119,8 @@ export const NOTICE_I18N = {
     // ---- AI 백엔드 오류 ----
     // 채팅 뷰가 `error(e)`로 감싸 화면에 그대로 띄우므로 사용자에게 보이는 문구다.
     errNoApiKey: (backend: string) => `${backend} API key is not configured. Enter it in settings.`,
+    errBedrockProfileAuth: (details: string) => `Bedrock AWS profile authentication failed: ${details}`,
+    bedrockAuthFallback: "⚠️ Bedrock AWS profile authentication failed → using the Bedrock API key",
     whatEmbedding: "embedding request",
     whatModelList: "model list lookup",
     whatRequest: "request",
@@ -286,6 +288,8 @@ export const NOTICE_I18N = {
 
     // ---- AI 백엔드 오류 ----
     errNoApiKey: (backend: string) => `${backend} API 키가 설정되지 않았습니다. 설정에서 API 키를 입력하세요.`,
+    errBedrockProfileAuth: (details: string) => `Bedrock AWS 프로필 인증 실패: ${details}`,
+    bedrockAuthFallback: "⚠️ Bedrock AWS 프로필 인증 실패 → Bedrock API 키로 전환합니다",
     whatEmbedding: "임베딩 요청",
     whatModelList: "모델 목록 조회",
     whatRequest: "요청",
@@ -451,6 +455,8 @@ export const NOTICE_I18N = {
 
     // ---- AI 백엔드 오류 ----
     errNoApiKey: (backend: string) => `${backend} APIキーが設定されていません。設定でAPIキーを入力してください。`,
+    errBedrockProfileAuth: (details: string) => `Bedrock AWSプロファイル認証に失敗しました: ${details}`,
+    bedrockAuthFallback: "⚠️ Bedrock AWSプロファイル認証に失敗 → Bedrock APIキーに切り替えます",
     whatEmbedding: "埋め込みリクエスト",
     whatModelList: "モデル一覧の取得",
     whatRequest: "リクエスト",
