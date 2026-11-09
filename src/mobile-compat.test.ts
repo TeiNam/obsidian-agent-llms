@@ -1,14 +1,17 @@
 import { describe, expect, it, vi } from "vitest";
-import { buildSync } from "esbuild";
-import { builtinModules, createRequire } from "node:module";
+import { build } from "esbuild";
+import { createRequire } from "node:module";
+// @ts-expect-error 빌드 스크립트(.mjs)는 타입 선언이 없다
+import { AWS_NODE_PACKAGES, NODE_BUILTINS, nodeSubbundle } from "../esbuild-node-subbundle.mjs";
 import { runInNewContext } from "node:vm";
 import * as obsidian from "./__mocks__/obsidian";
 
 // 실제 배포 진입점을 실행한다. 모바일에서는 Node 전역과 네이티브 require를 제공하지 않는다.
-const bundle = buildSync({
+const bundle = (await build({
   entryPoints: ["src/main.ts"], bundle: true, format: "cjs", target: "chrome106",
-  external: ["obsidian", "electron", ...builtinModules, ...builtinModules.map((m) => `node:${m}`)], minify: true, write: false,
-}).outputFiles[0].text;
+  external: ["obsidian", "electron", ...NODE_BUILTINS], minify: true, write: false,
+  plugins: [nodeSubbundle(AWS_NODE_PACKAGES)],
+})).outputFiles[0].text;
 const nodeRequire = createRequire(import.meta.url);
 
 function element(): any {

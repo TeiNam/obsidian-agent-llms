@@ -1,6 +1,6 @@
 import esbuild from "esbuild";
 import process from "process";
-import { builtinModules } from "node:module";
+import { AWS_NODE_PACKAGES, NODE_BUILTINS, nodeSubbundle } from "./esbuild-node-subbundle.mjs";
 
 const prod = process.argv[2] === "production";
 
@@ -21,9 +21,7 @@ esbuild.build({
     "@lezer/common",
     "@lezer/highlight",
     "@lezer/lr",
-    ...builtinModules,
-    // AWS 자격증명 SDK가 node: 접두어로 내장 모듈을 가져온다.
-    ...builtinModules.map((m) => `node:${m}`),
+    ...NODE_BUILTINS,
   ],
   format: "cjs",
   target: "chrome106",
@@ -32,4 +30,5 @@ esbuild.build({
   treeShaking: true,
   outfile: "main.js",
   minify: prod,
+  plugins: [nodeSubbundle(AWS_NODE_PACKAGES)],
 }).catch(() => process.exit(1));
