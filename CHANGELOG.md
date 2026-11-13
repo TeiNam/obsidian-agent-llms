@@ -7,6 +7,12 @@
 > **에디션 안내**: 이 프로젝트는 **AWS Bedrock · Google Gemini · OpenAI · Ollama** 멀티프로바이더 백엔드를 지원합니다.
 > 과거 `kiro-edition` 브랜치(Assistant Kiro)는 0.3.0에서 main으로 통합되었습니다.
 
+## [0.7.19] - 2026-11-14
+
+### Changed
+
+- MCP 모듈이 Node 내장 모듈(`child_process`·`path`)을 PC 확인(`Platform.isDesktopApp`) 뒤에서 불러온다. 커뮤니티 심사 린터의 내장 모듈 import 경고에 대응한 것이며, PC의 MCP 동작은 그대로다.
+
 ## [0.7.18] - 2026-11-13
 
 ### Changed

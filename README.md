@@ -14,7 +14,7 @@
 
 [English](README.md) | [한국어](README-KR.md) | [日本語](README-JA.md)
 
-This documentation describes **0.7.18**. See the [changelog](CHANGELOG.md) for version history.
+This documentation describes **0.7.19**. See the [changelog](CHANGELOG.md) for version history.
 
 An AI assistant sidebar plugin for Obsidian with multi-provider backend support — AWS Bedrock, Google Gemini, OpenAI, and Ollama.
 

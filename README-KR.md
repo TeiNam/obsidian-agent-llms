@@ -14,7 +14,7 @@
 
 [English](README.md) | [한국어](README-KR.md) | [日本語](README-JA.md)
 
-이 문서는 **0.7.18** 기준입니다. 버전별 변경 사항은 [변경 이력](CHANGELOG.md)을 참고하세요.
+이 문서는 **0.7.19** 기준입니다. 버전별 변경 사항은 [변경 이력](CHANGELOG.md)을 참고하세요.
 
 Obsidian용 AI 어시스턴트 사이드바 플러그인. AWS Bedrock, Google Gemini, OpenAI, Ollama 멀티프로바이더 백엔드를 지원합니다.
 

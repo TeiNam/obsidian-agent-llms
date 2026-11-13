@@ -19,8 +19,8 @@ export default defineConfig([
   },
   ...obsidianmd.configs.recommended,
   {
-    // 빌드 스크립트와 PC에서만 동적 로드하는 MCP 모듈의 Node 실행 환경.
-    files: ["esbuild.config.mjs", "esbuild-node-subbundle.mjs", "src/mcp-client.ts"],
+    // 빌드 스크립트의 Node 실행 환경. src는 예외 없이 심사와 같은 규칙을 받는다.
+    files: ["esbuild.config.mjs", "esbuild-node-subbundle.mjs"],
     languageOptions: {
       globals: { process: "readonly", Buffer: "readonly", NodeJS: "readonly" },
     },
