@@ -1,6 +1,6 @@
 # Agent LLMs
 
-![TypeScript](https://img.shields.io/badge/TypeScript-5.4-blue.svg)
+![TypeScript](https://img.shields.io/badge/TypeScript-6.0-blue.svg)
 ![Obsidian](https://img.shields.io/badge/Obsidian-1.7.2%2B-7C3AED.svg)
 ![Platforms](https://img.shields.io/badge/Platforms-Desktop%20%7C%20Mobile-blue.svg)
 ![AWS Bedrock](https://img.shields.io/badge/AWS-Bedrock-FF9900.svg)
@@ -14,7 +14,7 @@
 
 [English](README.md) | [한국어](README-KR.md) | [日本語](README-JA.md)
 
-このドキュメントは**0.7.15**を対象としています。バージョンごとの変更は[変更履歴](CHANGELOG.md)を参照してください。
+このドキュメントは**0.7.18**を対象としています。バージョンごとの変更は[変更履歴](CHANGELOG.md)を参照してください。
 
 AWS Bedrock、Google Gemini、OpenAI、Ollamaのマルチプロバイダーバックエンドに対応したObsidian AIアシスタントサイドバープラグインです。
 
