@@ -14,7 +14,7 @@
 
 [English](README.md) | [한국어](README-KR.md) | [日本語](README-JA.md)
 
-このドキュメントは**0.7.18**を対象としています。バージョンごとの変更は[変更履歴](CHANGELOG.md)を参照してください。
+このドキュメントは**0.7.19**を対象としています。バージョンごとの変更は[変更履歴](CHANGELOG.md)を参照してください。
 
 AWS Bedrock、Google Gemini、OpenAI、Ollamaのマルチプロバイダーバックエンドに対応したObsidian AIアシスタントサイドバープラグインです。
 

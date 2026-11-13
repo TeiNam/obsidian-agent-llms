@@ -1,6 +1,6 @@
 # Bedrock Authentication Setup Guide
 
-This guide describes **0.7.18**. See the [README](../README.md) for installation and basic usage.
+This guide describes **0.7.19**. See the [README](../README.md) for installation and basic usage.
 
 On PC, the Agent LLMs Bedrock backend authenticates in the order below. Mobile uses only the Bedrock API key.
 
