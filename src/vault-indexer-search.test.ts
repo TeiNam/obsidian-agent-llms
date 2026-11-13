@@ -466,6 +466,38 @@ describe("VaultIndexer 어휘 점수 — 단어 경계", () => {
     expect(result.items.map((i) => i.path)).toEqual(["standalone.md"]);
   });
 
+  it("lookbehind를 못 읽는 엔진에서도 라틴 질의어를 찾는다", async () => {
+    // iOS 16.4 미만은 lookbehind가 든 패턴을 만드는 순간 SyntaxError를 던진다.
+    // 린터는 리터럴만 보고 조립한 패턴은 놓치므로, 그 엔진을 흉내 내 확인한다.
+    vi.stubGlobal(
+      "RegExp",
+      new Proxy(RegExp, {
+        construct(target, args: [string | RegExp, string?]) {
+          const source = typeof args[0] === "string" ? args[0] : args[0].source;
+          if (/\(\?<[=!]/.test(source)) {
+            throw new SyntaxError("Invalid regular expression: invalid group specifier name");
+          }
+          return new target(...args);
+        },
+      })
+    );
+    try {
+      const indexer = new VaultIndexer(makeApp(makeTFile("note.md")), makeClient());
+      indexer.deserialize(
+        makePayload([
+          { path: "substring.md", body: "this list history exists" },
+          { path: "standalone.md", body: "it is here" },
+        ])
+      );
+
+      const result = await indexer.search("is");
+
+      expect(result.items.map((i) => i.path)).toEqual(["standalone.md"]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("한글은 부분문자열로 센다", async () => {
     // 띄어쓰기 없이 붙는 언어에서는 경계 규칙을 쓸 수 없다.
     const indexer = new VaultIndexer(makeApp(makeTFile("note.md")), makeClient());
