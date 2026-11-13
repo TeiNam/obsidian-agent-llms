@@ -118,7 +118,8 @@ function firstTermIndex(text: string, term: string): number {
   const boundary = boundaryPattern(term);
   if (boundary !== null) {
     const match = boundary.exec(text);
-    return match === null ? -1 : match.index;
+    // 패턴이 앞 경계 글자를 함께 잡으므로 그 길이만큼 건너뛴다.
+    return match === null ? -1 : match.index + match[1].length;
   }
 
   return text.indexOf(term);
@@ -128,7 +129,8 @@ function firstTermIndex(text: string, term: string): number {
 function boundaryPattern(term: string): RegExp | null {
   if (!/^[a-z0-9]+$/.test(term)) return null;
   const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(`(?<![a-z0-9])${escaped}(?![a-z0-9])`, "g");
+  // lookbehind는 iOS 16.4 미만에서 SyntaxError다. 앞 경계는 그룹으로 잡는다.
+  return new RegExp(`(^|[^a-z0-9])${escaped}(?![a-z0-9])`, "g");
 }
 
 /** 질의를 어휘 검색용 토큰으로 쪼갠다. */

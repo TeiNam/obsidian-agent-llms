@@ -388,6 +388,8 @@ body.theme-light .ba-message-content pre {
 
 .ba-input-wrapper .ba-input {
   width: 100%;
+  /* 입력 이벤트가 인라인 height를 지우고 내용 높이를 다시 잰다. 그때의 기준값이다. */
+  height: auto;
   flex: 1 1 0;
   min-height: 60px;
   max-height: 200px;

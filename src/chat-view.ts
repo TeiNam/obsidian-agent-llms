@@ -262,14 +262,14 @@ export class ChatView extends ItemView {
     const radius = (ringSize - strokeWidth) / 2;
     const circumference = 2 * Math.PI * radius;
     const svgNS = "http://www.w3.org/2000/svg";
-    const svg = document.createElementNS(svgNS, "svg");
+    const svg = ringContainer.doc.createElementNS(svgNS, "svg");
     svg.setAttribute("width", String(ringSize));
     svg.setAttribute("height", String(ringSize));
     svg.setAttribute("viewBox", `0 0 ${ringSize} ${ringSize}`);
     svg.classList.add("ba-context-ring-svg");
 
     // 배경 원
-    const bgCircle = document.createElementNS(svgNS, "circle");
+    const bgCircle = ringContainer.doc.createElementNS(svgNS, "circle");
     bgCircle.setAttribute("cx", String(ringSize / 2));
     bgCircle.setAttribute("cy", String(ringSize / 2));
     bgCircle.setAttribute("r", String(radius));
@@ -279,7 +279,7 @@ export class ChatView extends ItemView {
     svg.appendChild(bgCircle);
 
     // 프로그레스 원
-    const progressCircle = document.createElementNS(svgNS, "circle");
+    const progressCircle = ringContainer.doc.createElementNS(svgNS, "circle");
     progressCircle.setAttribute("cx", String(ringSize / 2));
     progressCircle.setAttribute("cy", String(ringSize / 2));
     progressCircle.setAttribute("r", String(radius));
@@ -321,9 +321,9 @@ export class ChatView extends ItemView {
       }
     });
 
-    // 자동 높이 조절 — 내용 높이를 재려면 먼저 height를 풀어야 하므로 인라인 스타일을 쓴다.
+    // 자동 높이 조절 — 내용 높이를 재려면 먼저 인라인 height를 지워 스타일시트의 auto로 되돌린다.
     this.uiEvents.registerDomEvent(this.inputEl, "input", () => {
-      this.inputEl.setCssStyles({ height: "auto" });
+      this.inputEl.setCssStyles({ height: "" });
       const height = Math.min(this.inputEl.scrollHeight, INPUT_MAX_HEIGHT_PX);
       this.inputEl.setCssStyles({ height: `${height}px` });
       this.updateContextRing();
@@ -458,7 +458,7 @@ export class ChatView extends ItemView {
     if (this.isGenerating) return;
 
     this.inputEl.value = "";
-    this.inputEl.setCssStyles({ height: "auto" });
+    this.inputEl.setCssStyles({ height: "" });
 
     // 환영 메시지 제거
     const welcome = this.messagesEl.querySelector(".ba-welcome");
@@ -1452,7 +1452,7 @@ export class ChatView extends ItemView {
 
       // 외부 클릭 시 닫기
       window.setTimeout(() => {
-        document.addEventListener("click", this.handleDropdownOutsideClick);
+        this.containerEl.doc.addEventListener("click", this.handleDropdownOutsideClick);
       }, 0);
     }
 
@@ -1467,7 +1467,7 @@ export class ChatView extends ItemView {
         this.modelDropdownEl.remove();
         this.modelDropdownEl = null;
       }
-      document.removeEventListener("click", this.handleDropdownOutsideClick);
+      this.containerEl.doc.removeEventListener("click", this.handleDropdownOutsideClick);
     }
 
   // 모델 목록 캐시 새로고침

@@ -19,6 +19,8 @@ function element(): any {
   for (const method of ["createDiv", "createSpan", "createEl"]) el[method] = () => element();
   for (const method of ["setText", "setAttr", "setAttribute", "appendChild", "addClass", "removeClass", "empty", "remove", "addEventListener"]) el[method] = vi.fn();
   el.classList = { add: vi.fn(), remove: vi.fn() };
+  // 옵시디언의 모든 노드는 자기가 속한 창의 문서를 `doc`으로 돌려준다.
+  el.doc = { createElementNS: () => element() };
   el.querySelector = () => null;
   el.querySelectorAll = () => [];
   return el;
@@ -83,7 +85,6 @@ function runtime(mobile = true, initial: Record<string, unknown> = {}, modern = 
     module, exports: module.exports, require, console,
     TextEncoder, TextDecoder, AbortController, URL, URLSearchParams, Uint8Array, setTimeout, clearTimeout,
     TransformStream, ReadableStream, WritableStream, Blob, Request, Response, Headers,
-    document: { createElementNS: () => element() },
     window: { crypto: globalThis.crypto, setTimeout, clearTimeout, setInterval: vi.fn(() => 1) },
   });
   const plugin = new module.exports.default();
