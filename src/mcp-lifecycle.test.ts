@@ -1,13 +1,12 @@
 import { EventEmitter } from "node:events";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createRequire } from "node:module";
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const childProcessMocks = vi.hoisted(() => ({
-  spawn: vi.fn(),
-}));
-
-vi.mock("child_process", () => ({
-  spawn: childProcessMocks.spawn,
-}));
+// mcp-client는 child_process를 require로 불러와 vi.mock이 닿지 않는다.
+// 같은 모듈 객체의 spawn을 바꿔치기한다.
+const childProcessMocks = {
+  spawn: vi.spyOn(createRequire(import.meta.url)("child_process"), "spawn"),
+};
 
 import { McpManager } from "./mcp-client";
 
@@ -67,6 +66,10 @@ describe("MCP 연결 수명주기", () => {
 
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  afterAll(() => {
+    childProcessMocks.spawn.mockRestore();
   });
 
   it("사용자 타임아웃을 initialize 요청부터 적용한다", async () => {

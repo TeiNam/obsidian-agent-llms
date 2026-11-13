@@ -1,5 +1,5 @@
-import { type ChildProcess, spawn } from "child_process";
-import { delimiter, posix, win32 } from "path";
+import type { ChildProcess } from "child_process";
+import { Platform } from "obsidian";
 import type { ToolDefinition } from "./types";
 import { BRANDING } from "./branding";
 import { formatToolError } from "./tool-failure-tracker";
@@ -8,8 +8,18 @@ import { toolI18n } from "./tool-result-i18n";
 import { getErrorMessage } from "./error-utils";
 import type { Locale } from "./types";
 
-/** 운영체제 PATH 구분자로 빈 항목 없이 결합한다. */
-export function joinSearchPath(paths: readonly string[], separator = delimiter): string {
+// Node 내장 모듈은 PC에만 있다. 번들이 cjs라 import()는 그대로 남아 실패하므로 require로 불러온다.
+const node = Platform.isDesktopApp
+  ? {
+      childProcess: require("child_process") as typeof import("child_process"),
+      path: require("path") as typeof import("path"),
+    }
+  : null;
+// McpManager는 PC에서만 만들어지므로 모바일에서는 이 오류에 닿지 않는다.
+const DESKTOP_ONLY = "MCP servers run on desktop only.";
+
+/** PATH 구분자로 빈 항목 없이 결합한다. */
+export function joinSearchPath(paths: readonly string[], separator: string): string {
   return paths.filter(Boolean).join(separator);
 }
 
@@ -25,7 +35,8 @@ export function buildMcpEnvironment(
     "TMPDIR", "TMP", "TEMP", "LANG", "LC_ALL", "LC_CTYPE",
   ]);
   const env: NodeJS.ProcessEnv = {};
-  const path = platform === "win32" ? win32 : posix;
+  if (!node) throw new Error(DESKTOP_ONLY);
+  const path = platform === "win32" ? node.path.win32 : node.path.posix;
   const keyOf = (key: string) => platform === "win32" ? key.toUpperCase() : key;
   for (const [key, value] of Object.entries(parent)) {
     const normalized = keyOf(key);
@@ -211,9 +222,10 @@ class McpServerConnection {
   async connect(): Promise<void> {
     if (this.config.disabled) return;
     if (this.intentionalDisconnect) throw new Error(this.t.mcpConnectionClosed);
+    if (!node) throw new Error(DESKTOP_ONLY);
     this.buffer = "";
     // 실행 파일 탐색은 spawn의 env.PATH 처리에 맡긴다.
-    const proc = spawn(this.config.command, this.config.args || [], {
+    const proc = node.childProcess.spawn(this.config.command, this.config.args || [], {
       stdio: ["pipe", "pipe", "pipe"],
       env: buildMcpEnvironment(this.config.env),
       shell: false,
