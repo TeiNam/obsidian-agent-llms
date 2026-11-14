@@ -1,6 +1,7 @@
-import { App, FuzzySuggestModal, Modal, Notice, PluginSettingTab, Setting, TFolder, requireApiVersion, setIcon, setTooltip, Platform } from "obsidian";
+import { App, FuzzySuggestModal, Modal, Notice, PluginSettingTab, Setting, TFolder, setIcon, setTooltip, Platform } from "obsidian";
 import type GeminiAssistantPlugin from "./main";
 import type { CustomSkill, EffortLevel, Locale } from "./types";
+import type { SecretIds } from "./secrets";
 // Second Brain 설정 정규화 (Req 1.4, 1.5): onChange 시점 값 보정에 사용
 import { normalizeSecondBrainSettings } from "./types";
 import { SKILLS } from "./skills";
@@ -35,7 +36,7 @@ const TODO_FOLDER_DEFAULT = "ToDo";
 export const I18N = {
   en: {
     pluginDesc: "An AI assistant sidebar that reads, searches, and writes your vault. Everything below is off or empty until you configure it — nothing runs on your notes without your say-so.",
-    mobileInfo: "Mobile API keys are stored on this device with Obsidian SecretStorage (1.11.4+). Set them up separately on each device. Older versions keep new keys only for the current session. Local MCP servers are available on desktop only.",
+    mobileInfo: "API keys are kept in Obsidian's keychain on this device. Select or create a secret for each key on every device you use. Local MCP servers are available on desktop only.",
     readmeLabel: "📖 Documentation",
     readmeFile: "README.md",
     sponsorLabel: "If you find this plugin useful, consider supporting its development.",
@@ -49,17 +50,15 @@ export const I18N = {
     // Gemini 자격증명
     awsAuth: "Gemini API",
     apiKey: "Gemini API key",
-    apiKeyDesc: "Your Gemini API key from Google AI Studio",
-    apiKeyPlaceholder: "Enter Gemini API key",
+    apiKeyDesc: "Select or create a secret that holds your Gemini API key from Google AI Studio.",
     // Bedrock 자격증명
     bedrockApiKeyLabel: "Bedrock API key",
-    bedrockApiKeyDesc: "Bedrock API key (bearer token). Used on mobile, or on PC when the AWS profiles above are empty or fail. Leave empty if a profile works.",
+    bedrockApiKeyDesc: "Select or create a secret that holds your Bedrock API key (bearer token). Used on mobile, or on PC when the AWS profiles above are empty or fail. Leave unselected if a profile works.",
     bedrockRolesAnywhereProfileLabel: "Roles Anywhere profile (PC)",
     bedrockRolesAnywhereProfileDesc: "~/.aws/config profile that runs aws_signing_helper via credential_process. Tried first.",
     bedrockSsoProfileLabel: "SSO profile (PC)",
     bedrockSsoProfileDesc: "~/.aws/config SSO profile. Tried second; run `aws sso login --profile <name>` first.",
     bedrockProfilePlaceholder: "Profile name",
-    bedrockApiKeyPlaceholder: "Enter Bedrock API key",
     awsRegionLabel: "AWS region",
     awsRegionDesc: "AWS Region for Bedrock API",
     awsRegionPlaceholder: "us-east-1",
@@ -71,8 +70,7 @@ export const I18N = {
     // OpenAI 백엔드 설정 (Req 2.1, 13)
     openaiAuth: "OpenAI",
     openaiApiKey: "OpenAI API key",
-    openaiApiKeyDesc: "Your OpenAI API key",
-    openaiApiKeyPlaceholder: "Enter OpenAI API key",
+    openaiApiKeyDesc: "Select or create a secret that holds your OpenAI API key.",
     openaiBaseUrl: "Base URL (optional)",
     openaiBaseUrlDesc: "OpenAI-compatible endpoint including /v1 (leave empty for the official OpenAI API)",
     openaiBaseUrlPlaceholder: "https://api.openai.com/v1",
@@ -236,7 +234,7 @@ export const I18N = {
   },
   ko: {
     pluginDesc: "볼트를 읽고 검색하고 쓰는 AI 어시스턴트 사이드바입니다. 아래 기능은 설정하기 전까지 모두 꺼져 있거나 비어 있습니다 — 승인 없이 노트를 건드리지 않습니다.",
-    mobileInfo: "모바일 API 키는 Obsidian SecretStorage(1.11.4 이상)를 통해 이 기기에 저장됩니다. 기기마다 별도로 입력해 주세요. 구버전에서는 새 키가 현재 세션에만 유지됩니다. 로컬 MCP 서버는 PC에서만 사용할 수 있습니다.",
+    mobileInfo: "API 키는 이 기기의 Obsidian 키체인에 보관됩니다. 사용하는 기기마다 키별로 비밀을 고르거나 새로 만들어 주세요. 로컬 MCP 서버는 PC에서만 사용할 수 있습니다.",
     readmeLabel: "📖 사용 가이드",
     readmeFile: "README-KR.md",
     sponsorLabel: "이 플러그인이 유용하다면 개발을 후원해 주세요.",
@@ -250,17 +248,15 @@ export const I18N = {
     // Gemini 자격증명
     awsAuth: "Gemini API",
     apiKey: "Gemini API Key",
-    apiKeyDesc: "Google AI Studio에서 발급받은 Gemini API 키",
-    apiKeyPlaceholder: "Gemini API 키 입력",
+    apiKeyDesc: "Google AI Studio에서 발급받은 Gemini API 키를 담은 비밀을 고르거나 새로 만듭니다.",
     // Bedrock 자격증명
     bedrockApiKeyLabel: "Bedrock API 키",
-    bedrockApiKeyDesc: "Bedrock API 키(베어러 토큰). 모바일, 또는 PC에서 위 AWS 프로필이 비었거나 실패할 때 씁니다. 프로필이 동작하면 비워 둬도 됩니다.",
+    bedrockApiKeyDesc: "Bedrock API 키(베어러 토큰)를 담은 비밀을 고르거나 새로 만듭니다. 모바일, 또는 PC에서 위 AWS 프로필이 비었거나 실패할 때 씁니다. 프로필이 동작하면 고르지 않아도 됩니다.",
     bedrockRolesAnywhereProfileLabel: "Roles Anywhere 프로필 (PC)",
     bedrockRolesAnywhereProfileDesc: "credential_process로 aws_signing_helper를 실행하는 ~/.aws/config 프로필. 가장 먼저 시도합니다.",
     bedrockSsoProfileLabel: "SSO 프로필 (PC)",
     bedrockSsoProfileDesc: "~/.aws/config의 SSO 프로필. 두 번째로 시도합니다. 먼저 `aws sso login --profile <이름>`을 실행하세요.",
     bedrockProfilePlaceholder: "프로필 이름",
-    bedrockApiKeyPlaceholder: "Bedrock API 키 입력",
     awsRegionLabel: "AWS 리전",
     awsRegionDesc: "Bedrock API용 AWS 리전",
     awsRegionPlaceholder: "us-east-1",
@@ -272,8 +268,7 @@ export const I18N = {
     // OpenAI 백엔드 설정 (Req 2.1, 13)
     openaiAuth: "OpenAI",
     openaiApiKey: "OpenAI API 키",
-    openaiApiKeyDesc: "OpenAI API 키",
-    openaiApiKeyPlaceholder: "OpenAI API 키 입력",
+    openaiApiKeyDesc: "OpenAI API 키를 담은 비밀을 고르거나 새로 만듭니다.",
     openaiBaseUrl: "Base URL (선택)",
     openaiBaseUrlDesc: "OpenAI 호환 엔드포인트 (/v1 포함). 비우면 OpenAI 공식 API를 사용합니다",
     openaiBaseUrlPlaceholder: "https://api.openai.com/v1",
@@ -437,7 +432,7 @@ export const I18N = {
   },
   ja: {
     pluginDesc: "ボルトを読み・検索し・書くAIアシスタントサイドバーです。以下の機能は設定するまですべてオフか空の状態で、承認なしにノートを触ることはありません。",
-    mobileInfo: "モバイルのAPIキーはObsidian SecretStorage（1.11.4以降）でこの端末に保存されます。端末ごとに入力してください。旧バージョンでは新しいキーは現在のセッションのみ保持されます。ローカルMCPサーバーはPC専用です。",
+    mobileInfo: "APIキーはこの端末のObsidianキーチェーンに保管されます。使用する端末ごとに、キーごとのシークレットを選択するか新しく作成してください。ローカルMCPサーバーはPC専用です。",
     readmeLabel: "📖 ドキュメント",
     readmeFile: "README-JA.md",
     sponsorLabel: "このプラグインが役に立ったら、開発を支援してください。",
@@ -451,17 +446,15 @@ export const I18N = {
     // Gemini 資格情報
     awsAuth: "Gemini API",
     apiKey: "Gemini APIキー",
-    apiKeyDesc: "Google AI Studioから取得したGemini APIキー",
-    apiKeyPlaceholder: "Gemini APIキーを入力",
+    apiKeyDesc: "Google AI Studioから取得したGemini APIキーを入れたシークレットを選択するか、新しく作成します。",
     // Bedrock 資格情報
     bedrockApiKeyLabel: "Bedrock APIキー",
-    bedrockApiKeyDesc: "Bedrock APIキー(ベアラートークン)。モバイル、またはPCで上のAWSプロファイルが空か失敗したときに使います。プロファイルが動作すれば空のままで構いません。",
+    bedrockApiKeyDesc: "Bedrock APIキー(ベアラートークン)を入れたシークレットを選択するか、新しく作成します。モバイル、またはPCで上のAWSプロファイルが空か失敗したときに使います。プロファイルが動作すれば選択しなくて構いません。",
     bedrockRolesAnywhereProfileLabel: "Roles Anywhereプロファイル (PC)",
     bedrockRolesAnywhereProfileDesc: "credential_processでaws_signing_helperを実行する~/.aws/configのプロファイル。最初に試します。",
     bedrockSsoProfileLabel: "SSOプロファイル (PC)",
     bedrockSsoProfileDesc: "~/.aws/configのSSOプロファイル。2番目に試します。先に`aws sso login --profile <名前>`を実行してください。",
     bedrockProfilePlaceholder: "プロファイル名",
-    bedrockApiKeyPlaceholder: "Bedrock APIキーを入力",
     awsRegionLabel: "AWSリージョン",
     awsRegionDesc: "Bedrock API用 AWSリージョン",
     awsRegionPlaceholder: "us-east-1",
@@ -473,8 +466,7 @@ export const I18N = {
     // OpenAI バックエンド設定 (Req 2.1, 13)
     openaiAuth: "OpenAI",
     openaiApiKey: "OpenAI APIキー",
-    openaiApiKeyDesc: "OpenAI APIキー",
-    openaiApiKeyPlaceholder: "OpenAI APIキーを入力",
+    openaiApiKeyDesc: "OpenAI APIキーを入れたシークレットを選択するか、新しく作成します。",
     openaiBaseUrl: "Base URL（任意）",
     openaiBaseUrlDesc: "OpenAI互換エンドポイント（/v1を含む）。空の場合はOpenAI公式APIを使用します",
     openaiBaseUrlPlaceholder: "https://api.openai.com/v1",
@@ -677,17 +669,22 @@ function forEachChatView(app: App, apply: (view: ChatViewHooks) => void): void {
   }
 }
 
-// 같은 정의를 1.13+ 검색·렌더링과 구버전 화면에서 공유한다.
 type SettingRow = {
   name: string;
   desc?: string | DocumentFragment;
   searchable?: boolean;
   render: (setting: Setting) => void;
 };
+/** 비밀을 고르는 선언형 항목. Obsidian이 선택 UI를 그리고 setControlValue로 비밀 이름을 넘긴다. */
+type SecretRow = {
+  name: string;
+  desc: string;
+  control: { type: "secret"; key: keyof SecretIds };
+};
 type SettingSection = {
   type: "group";
   heading?: string;
-  items: SettingRow[];
+  items: (SettingRow | SecretRow)[];
 };
 
 // 설정 탭
@@ -696,7 +693,7 @@ export class GeminiSettingTab extends PluginSettingTab {
   // 자격증명 변경 시 모델 목록 재로드 디바운스 타이머
   private credentialDebounceTimer: number | null = null;
   // 탭 오픈 시점의 임베딩 구성 시그니처. 탭을 닫을 때 변경 여부를 비교해
-  // 재인덱싱 안내를 띄운다. (display()는 재렌더로 여러 번 호출되므로 최초 1회만 기록)
+  // 재인덱싱 안내를 띄운다. (항목은 재렌더로 여러 번 그려지므로 최초 1회만 기록)
   private embeddingSignatureSnapshot: string | null = null;
 
   constructor(app: App, plugin: GeminiAssistantPlugin) {
@@ -711,30 +708,22 @@ export class GeminiSettingTab extends PluginSettingTab {
     }
     this.credentialDebounceTimer = window.setTimeout(() => {
       this.credentialDebounceTimer = null;
-      this.refreshSettings();
+      this.update();
     }, 1500);
   }
 
-  /** Obsidian 1.13 이전의 렌더링 진입점. */
-  display(): void {
-    this.renderLegacySettings();
-  }
-
-  private refreshSettings(): void {
-    if (requireApiVersion("1.13.0")) this.update();
-    else this.renderLegacySettings();
-  }
-
-  private renderLegacySettings(): void {
-    const { containerEl } = this;
-    containerEl.empty();
-    for (const section of this.getSettingDefinitions()) {
-      if (section.heading) new Setting(containerEl).setName(section.heading).setHeading();
-      for (const row of section.items) {
-        const setting = new Setting(containerEl).setName(row.name).setDesc(row.desc ?? "");
-        row.render(setting);
-      }
-    }
+  /**
+   * 선언형 control(비밀 선택)이 고른 값을 저장한다.
+   *
+   * 기본 구현은 plugin.settings를 그대로 data.json에 쓰므로, 메모리에 있는 키 값까지
+   * 저장된다. 플러그인의 saveSettings를 거쳐 키 값을 뺀 설정만 저장하게 한다.
+   */
+  async setControlValue(key: string, value: unknown): Promise<void> {
+    // 선택을 지우면 null이 온다.
+    (this.plugin.settings as unknown as Record<string, unknown>)[key] = value ?? "";
+    this.plugin.refreshApiKeys();
+    await this.plugin.saveSettings();
+    this.scheduleModelReload();
   }
 
   /** 검색 등록 시에도 호출되므로 정의 수집 중에는 DOM·네트워크·저장을 실행하지 않는다. */
@@ -762,6 +751,9 @@ export class GeminiSettingTab extends PluginSettingTab {
       render: (setting: Setting) => void,
       searchable = true,
     ): void => addDefinition({ name, desc, render, searchable });
+    const addSecret = (name: string, desc: string, key: keyof SecretIds): void => {
+      section.items.push({ name, desc, control: { type: "secret", key } });
+    };
     const lang = this.plugin.settings.language;
     const t = I18N[lang] || I18N.en;
     // 현재 언어에 키가 없으면 영어 레이블로 폴백한다.
@@ -791,7 +783,7 @@ export class GeminiSettingTab extends PluginSettingTab {
               this.plugin.mcpManager?.setLocale(value as Locale);
               // 열려있는 채팅 뷰 UI 즉시 재빌드
               forEachChatView(this.app, (view) => void view.rebuildUI?.());
-              this.refreshSettings();
+              this.update();
             })
         );
     });
@@ -823,7 +815,7 @@ export class GeminiSettingTab extends PluginSettingTab {
               // refreshBranding이 열린 뷰를 rebuildUI(→onOpen→preloadModels)하므로,
               // 헤더 아이콘 갱신과 새 백엔드 모델 목록 재로드가 한 번에 처리된다.
               this.plugin.refreshBranding();
-              this.refreshSettings(); // 설정 탭 UI 재렌더링 (표시 필드 집합 갱신 — Req 12.5)
+              this.update(); // 설정 탭 UI 재렌더링 (표시 필드 집합 갱신 — Req 12.5)
             })
         );
     });
@@ -833,22 +825,7 @@ export class GeminiSettingTab extends PluginSettingTab {
       // Gemini API 설정
       addHeading(t.awsAuth);
 
-      addSetting(t.apiKey, t.apiKeyDesc, (setting) => {
-        setting.addText((text) => {
-          text
-            .setPlaceholder(t.apiKeyPlaceholder)
-            .setValue(this.plugin.settings.geminiApiKey)
-            .onChange(async (value) => {
-              this.plugin.settings.geminiApiKey = value.trim();
-              await this.plugin.saveSettings();
-              // API 키 변경 시 모델 목록 재로드 예약
-              this.scheduleModelReload();
-            });
-          text.inputEl.type = "password";
-          text.inputEl.addClass("ba-secret-input");
-        });
-        this.addToggleVisibilityButton(setting.controlEl);
-      });
+      addSecret(t.apiKey, t.apiKeyDesc, "geminiApiKeySecret");
     } else if (this.plugin.settings.aiBackend === "bedrock") {
       // Bedrock (AWS) 자격증명 설정
       addHeading("AWS Bedrock");
@@ -875,21 +852,7 @@ export class GeminiSettingTab extends PluginSettingTab {
         }
       }
 
-      addSetting(t.bedrockApiKeyLabel, t.bedrockApiKeyDesc, (setting) => {
-        setting.addText((text) => {
-          text
-            .setPlaceholder(t.bedrockApiKeyPlaceholder)
-            .setValue(this.plugin.settings.bedrockApiKey)
-            .onChange(async (value) => {
-              this.plugin.settings.bedrockApiKey = value.trim();
-              await this.plugin.saveSettings();
-              this.scheduleModelReload();
-            });
-          text.inputEl.type = "password";
-          text.inputEl.addClass("ba-secret-input");
-        });
-        this.addToggleVisibilityButton(setting.controlEl);
-      });
+      addSecret(t.bedrockApiKeyLabel, t.bedrockApiKeyDesc, "bedrockApiKeySecret");
 
       addSetting(t.awsRegionLabel, t.awsRegionDesc, (setting) => {
         setting
@@ -909,23 +872,7 @@ export class GeminiSettingTab extends PluginSettingTab {
       // OpenAI 자격증명 설정 (Req 12.1): API 키(마스킹) + 선택적 base URL
       addHeading(tk("openaiAuth"));
 
-      // OpenAI API 키 — 기존 password + 눈 버튼 마스킹 패턴 재사용 (Req 3.7)
-      addSetting(tk("openaiApiKey"), tk("openaiApiKeyDesc"), (setting) => {
-        setting.addText((text) => {
-          text
-            .setPlaceholder(tk("openaiApiKeyPlaceholder"))
-            .setValue(this.plugin.settings.openaiApiKey)
-            .onChange(async (value) => {
-              this.plugin.settings.openaiApiKey = value.trim();
-              await this.plugin.saveSettings();
-              // API 키 변경 시 모델 목록 재로드 예약
-              this.scheduleModelReload();
-            });
-          text.inputEl.type = "password";
-          text.inputEl.addClass("ba-secret-input");
-        });
-        this.addToggleVisibilityButton(setting.controlEl);
-      });
+      addSecret(tk("openaiApiKey"), tk("openaiApiKeyDesc"), "openaiApiKeySecret");
 
       // 선택적 base URL — onChange에서 형식 검증, 실패 시 Notice + 이전 유효값 유지 (Req 2.10)
       addDefinition(this.addBaseUrlSetting(
@@ -973,7 +920,7 @@ export class GeminiSettingTab extends PluginSettingTab {
               );
               await this.plugin.saveSettings();
               // effort 항목 노출/옵션이 모델에 따라 바뀌므로 탭을 다시 그린다.
-              this.refreshSettings();
+              this.update();
             });
             // 비동기로 모델 목록 로드 후 드롭다운 갱신
             void (async () => {
@@ -1024,7 +971,7 @@ export class GeminiSettingTab extends PluginSettingTab {
               );
               await this.plugin.saveSettings();
               // effort 항목 노출/옵션이 모델에 따라 바뀌므로 탭을 다시 그린다.
-              this.refreshSettings();
+              this.update();
             });
             // 비동기로 모델 목록 로드 후 드롭다운 갱신
             void (async () => {
@@ -1258,8 +1205,7 @@ export class GeminiSettingTab extends PluginSettingTab {
     addSetting(t.clearHistory, t.clearHistoryDesc, (setting) => {
       setting
         .addButton((btn) => {
-          if (requireApiVersion("1.13.0")) btn.setDestructive();
-          else btn.buttonEl.addClass("mod-warning");
+          btn.setDestructive();
           btn
             .setButtonText(t.clearHistoryBtn)
             .onClick(async () => {
@@ -1290,7 +1236,7 @@ export class GeminiSettingTab extends PluginSettingTab {
             new FolderSuggestModal(this.app, voidAsync(async (folder) => {
               this.plugin.settings.templateFolder = folder;
               await this.plugin.saveSettings();
-              this.refreshSettings();
+              this.update();
             }), t.folderSelectPlaceholder).open();
           })
         );
@@ -1444,7 +1390,7 @@ export class GeminiSettingTab extends PluginSettingTab {
               });
               Object.assign(this.plugin.settings.secondBrain, normalized);
               await this.plugin.saveSettings();
-              this.refreshSettings();
+              this.update();
             }), t.folderSelectPlaceholder).open();
           })
         );
@@ -1518,7 +1464,7 @@ export class GeminiSettingTab extends PluginSettingTab {
             new FolderSuggestModal(this.app, voidAsync(async (folder) => {
               this.plugin.settings.todoFolder = normalizePlannerSetting(folder, TODO_FOLDER_DEFAULT);
               await this.plugin.saveSettings();
-              this.refreshSettings();
+              this.update();
             }), t.folderSelectPlaceholder).open();
           })
         );
@@ -1553,7 +1499,7 @@ export class GeminiSettingTab extends PluginSettingTab {
             new FolderSuggestModal(this.app, voidAsync(async (folder) => {
               this.plugin.settings.todoArchiveFolder = folder;
               await this.plugin.saveSettings();
-              this.refreshSettings();
+              this.update();
             }), t.folderSelectPlaceholder).open();
           })
         );
@@ -1591,8 +1537,7 @@ export class GeminiSettingTab extends PluginSettingTab {
             })
         )
         .addButton((btn) => {
-          if (requireApiVersion("1.13.0")) btn.setDestructive();
-          else btn.buttonEl.addClass("mod-warning");
+          btn.setDestructive();
           btn
             .setButtonText(t.archiveCleanBtn)
             .onClick(() => {
@@ -1621,7 +1566,7 @@ export class GeminiSettingTab extends PluginSettingTab {
             new FolderSuggestModal(this.app, voidAsync(async (folder) => {
               this.plugin.settings.webClipFolder = folder;
               await this.plugin.saveSettings();
-              this.refreshSettings();
+              this.update();
             }), t.folderSelectPlaceholder).open();
           })
         );
@@ -1669,7 +1614,7 @@ export class GeminiSettingTab extends PluginSettingTab {
               .setIcon("pencil")
               .setTooltip(t.skillEdit)
               .onClick(() => {
-                new SkillEditModal(this.app, this.plugin, t, skill, () => this.refreshSettings()).open();
+                new SkillEditModal(this.app, this.plugin, t, skill, () => this.update()).open();
               })
           )
           .addExtraButton((btn) =>
@@ -1680,7 +1625,7 @@ export class GeminiSettingTab extends PluginSettingTab {
                 const idx = this.plugin.settings.customSkills.indexOf(skill);
                 if (idx >= 0) this.plugin.settings.customSkills.splice(idx, 1);
                 await this.plugin.saveSettings();
-                this.refreshSettings();
+                this.update();
               })
           );
       });
@@ -1691,7 +1636,7 @@ export class GeminiSettingTab extends PluginSettingTab {
       setting
         .addButton((btn) =>
           btn.setButtonText(t.skillAdd).setCta().onClick(() => {
-            new SkillEditModal(this.app, this.plugin, t, null, () => this.refreshSettings()).open();
+            new SkillEditModal(this.app, this.plugin, t, null, () => this.update()).open();
           })
         );
     });
@@ -1704,14 +1649,14 @@ export class GeminiSettingTab extends PluginSettingTab {
         setting
           .addButton((btn) =>
             btn.setButtonText(t.mcpEdit).onClick(() => {
-              new McpConfigModal(this.app, this.plugin, () => this.refreshSettings()).open();
+              new McpConfigModal(this.app, this.plugin, () => this.update()).open();
             })
           )
           .addButton((btn) =>
             btn.setButtonText(t.mcpStopAll).onClick(() => {
               this.plugin.mcpManager?.disconnectAll();
               new Notice(t.mcpStopped);
-              this.refreshSettings();
+              this.update();
             })
           );
       });
@@ -1941,7 +1886,7 @@ export class GeminiSettingTab extends PluginSettingTab {
             }
             await this.plugin.saveSettings();
             // effort 항목 노출/옵션이 모델에 따라 바뀌므로 탭을 다시 그린다.
-            if (kind === "chat") this.refreshSettings();
+            if (kind === "chat") this.update();
           });
           // 비동기로 모델 목록 로드 후 드롭다운 갱신
           void (async () => {
@@ -1970,29 +1915,6 @@ export class GeminiSettingTab extends PluginSettingTab {
         });
       },
     };
-  }
-
-  // 비밀 입력 필드 옆에 눈 아이콘 토글 버튼 추가
-  private addToggleVisibilityButton(controlEl: HTMLElement): void {
-    const wrapper = controlEl.querySelector(".setting-item-control") || controlEl;
-    const input = wrapper.querySelector("input");
-    if (!input) return;
-
-    // 입력 필드를 감싸는 래퍼 생성
-    const inputWrapper = createDiv({ cls: "ba-secret-wrapper" });
-    input.parentElement?.insertBefore(inputWrapper, input);
-    inputWrapper.appendChild(input);
-
-    const eyeBtn = inputWrapper.createDiv({ cls: "ba-eye-btn", attr: { "aria-label": "Toggle visibility" } });
-    // 초기 아이콘: 숨김 상태 (eye-off)
-    setIcon(eyeBtn, "eye-off");
-
-    eyeBtn.addEventListener("click", () => {
-      const isPassword = input.type === "password";
-      input.type = isPassword ? "text" : "password";
-      eyeBtn.empty();
-      setIcon(eyeBtn, isPassword ? "eye" : "eye-off");
-    });
   }
 }
 

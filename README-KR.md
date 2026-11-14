@@ -1,7 +1,7 @@
 # Agent LLMs
 
 ![TypeScript](https://img.shields.io/badge/TypeScript-6.0-blue.svg)
-![Obsidian](https://img.shields.io/badge/Obsidian-1.7.2%2B-7C3AED.svg)
+![Obsidian](https://img.shields.io/badge/Obsidian-1.13.2%2B-7C3AED.svg)
 ![Platforms](https://img.shields.io/badge/Platforms-Desktop%20%7C%20Mobile-blue.svg)
 ![AWS Bedrock](https://img.shields.io/badge/AWS-Bedrock-FF9900.svg)
 ![Google Gemini](https://img.shields.io/badge/Google-Gemini-4285F4.svg)
@@ -14,7 +14,7 @@
 
 [English](README.md) | [한국어](README-KR.md) | [日本語](README-JA.md)
 
-이 문서는 **0.7.19** 기준입니다. 버전별 변경 사항은 [변경 이력](CHANGELOG.md)을 참고하세요.
+이 문서는 **0.8.0** 기준입니다. 버전별 변경 사항은 [변경 이력](CHANGELOG.md)을 참고하세요.
 
 Obsidian용 AI 어시스턴트 사이드바 플러그인. AWS Bedrock, Google Gemini, OpenAI, Ollama 멀티프로바이더 백엔드를 지원합니다.
 
@@ -65,7 +65,7 @@ Obsidian용 AI 어시스턴트 사이드바 플러그인. AWS Bedrock, Google Ge
 
 ## 설치
 
-옵시디언 1.7.2 이상에서 PC·휴대폰·태블릿을 지원합니다. 모바일 API 키 저장에는 **1.11.4 이상**이 필요하며, 구버전에서는 새 키가 현재 세션에만 유지됩니다.
+옵시디언 **1.13.2 이상**에서 PC·휴대폰·태블릿을 지원합니다.
 
 Obsidian 1.13 이상의 설정 검색에서 현재 백엔드에 표시되는 설정을 찾을 수 있습니다. 이전 Obsidian에서는 기존 설정 화면을 사용합니다.
 
@@ -110,7 +110,7 @@ Obsidian 1.13 이상의 설정 검색에서 현재 백엔드에 표시되는 설
 
 ### 2. 자격증명 구성
 
-**Bedrock:** AWS Region을 설정하고 인증을 구성합니다. PC는 **Roles Anywhere 프로필 → SSO 프로필 → Bedrock API 키** 순서로 시도하며(`~/.aws/config` 프로필 이름 입력), 모바일은 **Bedrock API 키**(AWS 콘솔 → Bedrock → API keys)만 씁니다. 프로필이 동작하면 API 키는 비워 둬도 됩니다. 플러그인은 API 키를 자동 갱신하지 않으므로 만료되면 교체해야 합니다.
+**Bedrock:** AWS Region을 설정하고 인증을 구성합니다. PC는 **Roles Anywhere 프로필 → SSO 프로필 → Bedrock API 키** 순서로 시도하며(`~/.aws/config` 프로필 이름 입력), 모바일은 **Bedrock API 키**(AWS 콘솔 → Bedrock → API keys)만 씁니다. 프로필이 동작하면 API 키는 고르지 않아도 됩니다. 플러그인은 API 키를 자동 갱신하지 않으므로 만료되면 비밀의 값을 교체해야 합니다.
 
 키 발급, 모델 접근 확인, 여러 기기에서 사용하기: [Bedrock 설정 가이드](docs/bedrock-setup-kr.md)
 
@@ -124,15 +124,15 @@ Obsidian 1.13 이상의 설정 검색에서 현재 백엔드에 표시되는 설
 - `bedrock:ListInferenceProfiles`
 - `bedrock:CallWithBearerToken` (API 키 사용 시)
 
-**Gemini:** [Google AI Studio](https://aistudio.google.com/)에서 발급한 API 키 입력
+**Gemini:** [Google AI Studio](https://aistudio.google.com/)에서 발급한 API 키를 담은 비밀을 고르거나 새로 만들기
 
-**OpenAI:** API 키 입력. OpenAI 호환 엔드포인트를 사용하려면 `/v1`을 포함한 base URL 설정. 비워두면 공식 API 사용
+**OpenAI:** API 키를 담은 비밀을 고르거나 새로 만들기. OpenAI 호환 엔드포인트를 사용하려면 `/v1`을 포함한 base URL 설정. 비워두면 공식 API 사용
 
 **Ollama:** 서버 base URL 입력. 비워두면 `http://localhost:11434` 사용. API 키 불필요
 
-> **키 보관:** PC는 OS 키체인 기반 로컬 파일, 모바일은 Obsidian SecretStorage에 저장합니다. 새 키는 볼트의 `data.json`에 기록하지 않으며, 각 기기에서 별도로 입력해야 합니다.
+> **키 보관:** API 키는 PC·모바일 모두 Obsidian 키체인(설정 → 키체인)에 보관합니다. 키 항목마다 비밀을 고르거나 새로 만들 수 있고, 볼트의 `data.json`에는 비밀의 이름만 저장합니다. 비밀은 볼트·기기별로 따로 저장되므로, 쓰는 기기와 볼트마다 같은 이름의 비밀을 만들어 주세요.
 
-PC의 암호화·파일 저장이 실패하면 알림을 표시하고 기존 자격증명 파일을 보존합니다. 이전 `data.json`의 키는 로컬 저장 성공 후 제거하지만, 모바일에서 해독할 수 없는 PC 암호문은 PC 마이그레이션을 위해 보존하며 API 키로 사용하지 않습니다. 저장에 실패한 새 키는 현재 세션에만 남습니다. 모바일은 앱 버전(1.11.4 이상), PC는 키체인·파일 접근을 확인한 뒤 다시 저장하세요.
+이전 버전이 저장한 키는 볼트를 처음 열 때 키체인으로 옮깁니다. PC의 자격증명 파일(Electron `userData`의 `agent-llms-credentials.json`), 모바일의 SecretStorage 단일 항목, `data.json`에 남은 키가 대상입니다. PC 파일은 같은 PC의 모든 볼트가 함께 쓰므로 지우지 않으며, 키를 옮긴 볼트는 파일을 다시 읽지 않습니다. OS 키체인이 잠겨 있으면 다음 실행에서 다시 시도합니다. 모바일에서 해독할 수 없는 PC 암호문은 PC 마이그레이션을 위해 `data.json`에 보존하며 API 키로 사용하지 않습니다.
 
 ### 3. 사이드바 열기
 
@@ -239,10 +239,10 @@ PC에서는 Enter로 전송합니다. 모바일에서는 Enter가 줄바꿈이�
 
 ## 시스템 접근
 
-프로세스 실행·볼트 밖 파일 접근·MCP 환경 변수는 PC에서만 사용합니다. 모바일 키는 Obsidian SecretStorage에 저장하며, 볼트·클립보드 접근은 공통입니다. MCP 서버 자체의 권한은 별도로 적용됩니다.
+프로세스 실행·볼트 밖 파일 접근·MCP 환경 변수는 PC에서만 사용합니다. API 키는 모든 기기에서 Obsidian 키체인에 보관하며, 볼트·클립보드 접근은 공통입니다. MCP 서버 자체의 권한은 별도로 적용됩니다.
 
 - **프로세스 실행**(`child_process.spawn`) — 저장한 MCP 설정을 시작·재연결할 때 지정한 명령을 `shell: false`로 실행합니다. 플러그인이 셸을 자동으로 끼우지는 않지만, 명령 자체나 인자로 지정한 스크립트의 파일·네트워크 접근을 격리하는 샌드박스는 아닙니다. 서버 설정이 없으면 실행하지 않습니다. 중지 후 3초 동안 종료되지 않은 직접 자식 프로세스에는 강제 종료 신호를 보냅니다.
-- **볼트 밖 파일 접근**(Node `fs`) — AI 백엔드 키는 Electron `userData`의 `agent-llms-credentials.json`에 암호화해 저장합니다. 같은 디렉터리에 권한 `0600`의 임시 파일을 완성한 뒤 교체하며, 구 플러그인 자격증명 파일도 이 디렉터리 안에서 복사합니다. MCP 실행 파일 검색은 Node의 `spawn`과 `PATH` 처리에 맡깁니다.
+- **볼트 밖 파일 접근**(Node `fs`) — 이전 버전은 AI 백엔드 키를 Electron `userData`의 `agent-llms-credentials.json`에 암호화해 저장했습니다. 플러그인은 이 파일을 볼트마다 한 번 읽어 키를 Obsidian 키체인으로 옮기며, 파일을 고치거나 지우지 않습니다. 구 플러그인 ID의 자격증명 파일은 그 전에 같은 디렉터리 안에서 복사합니다. MCP 실행 파일 검색은 Node의 `spawn`과 `PATH` 처리에 맡깁니다.
 - **환경 변수** — MCP에는 `PATH`, `HOME`, `USERPROFILE`, `APPDATA`, `LOCALAPPDATA`, `SYSTEMROOT`, `SYSTEMDRIVE`, `COMSPEC`, `PATHEXT`, `TMPDIR`, `TMP`, `TEMP`, `LANG`, `LC_ALL`, `LC_CTYPE`만 기본 상속합니다. 여기에 서버별 `env`를 덮어씁니다. 그 밖의 토큰·런타임 옵션은 자동 전달하지 않습니다. 서버가 명시적으로 받은 값의 사용·전송은 그 서버에 달려 있습니다.
 - **볼트 전체 탐색** — 검색, Graph RAG 인덱싱, Second Brain, 파일 선택기에 Obsidian의 파일 목록 API를 사용합니다. 인덱싱은 대상 노트와 지원 텍스트 첨부를 청크로 나눠 **설정한 임베딩 API에 전송**합니다. 채팅에 첨부하거나 도구로 읽은 내용도 모델 요청에 포함될 수 있습니다. 로컬 Ollama를 제외한 외부 엔드포인트 사용 시 해당 내용은 기기 밖으로 나갑니다.
 - **클립보드** — 메시지 복사 버튼을 누를 때 쓰고 채팅 입력창에 붙여넣을 때 읽습니다. 복사가 완료된 뒤에만 성공 표시를 보여주며, 실패하면 알림을 표시합니다.

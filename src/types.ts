@@ -132,8 +132,10 @@ export type Locale = "en" | "ko" | "ja";
 
 // 플러그인 설정 타입
 export interface GeminiAssistantSettings {  language: Locale;
-  // Gemini API Key
+  // Gemini API Key. 값은 메모리에만 있고, 저장되는 것은 아래 비밀 이름이다.
   geminiApiKey: string;
+  /** Gemini API 키를 담은 비밀의 이름 (Obsidian 비밀 저장소) */
+  geminiApiKeySecret: string;
   chatModel: string;
   embeddingModel: string;
   maxTokens: number;
@@ -183,8 +185,10 @@ export interface GeminiAssistantSettings {  language: Locale;
   // === AI 백엔드 통합 필드 ===
   /** AI 백엔드 선택 ("bedrock" | "gemini" | "openai" | "ollama" 4값 union) */
   aiBackend: "bedrock" | "gemini" | "openai" | "ollama";
-  /** Bedrock API 키 (장기 베어러 토큰) */
+  /** Bedrock API 키 (장기 베어러 토큰). 값은 메모리에만 있다 */
   bedrockApiKey: string;
+  /** Bedrock API 키를 담은 비밀의 이름 */
+  bedrockApiKeySecret: string;
   /** Roles Anywhere용 `~/.aws/config` 프로필 이름 (PC 전용, 1순위) */
   bedrockRolesAnywhereProfile: string;
   /** SSO용 `~/.aws/config` 프로필 이름 (PC 전용, 2순위) */
@@ -197,8 +201,10 @@ export interface GeminiAssistantSettings {  language: Locale;
   bedrockEmbeddingModel: string;
 
   // === OpenAI 백엔드 필드 (Req 2.1) ===
-  /** OpenAI API 키 (민감 정보, 기본 ""). SENSITIVE_FIELDS로 보호됨 */
+  /** OpenAI API 키 (민감 정보, 기본 ""). 값은 메모리에만 있다 */
   openaiApiKey: string;
+  /** OpenAI API 키를 담은 비밀의 이름 */
+  openaiApiKeySecret: string;
   /** OpenAI 채팅 모델 ID (기본 "gpt-5.4-mini") */
   openaiChatModel: string;
   /** OpenAI 임베딩 모델 ID (기본 "text-embedding-3-large") */
@@ -295,6 +301,7 @@ export function filterStaleCredentials(
 export const DEFAULT_SETTINGS: GeminiAssistantSettings = {
   language: "en",
   geminiApiKey: "",
+  geminiApiKeySecret: "",
   chatModel: "gemini-3.1-flash-lite",
   embeddingModel: "text-embedding-004",
   maxTokens: 32000,
@@ -325,6 +332,7 @@ export const DEFAULT_SETTINGS: GeminiAssistantSettings = {
   // AI 백엔드 통합 기본값
   aiBackend: "bedrock",
   bedrockApiKey: "",
+  bedrockApiKeySecret: "",
   bedrockRolesAnywhereProfile: "",
   bedrockSsoProfile: "",
   awsRegion: "us-east-1",
@@ -332,6 +340,7 @@ export const DEFAULT_SETTINGS: GeminiAssistantSettings = {
   bedrockEmbeddingModel: "",
   // OpenAI 백엔드 기본값 (2026-06 기준)
   openaiApiKey: "",
+  openaiApiKeySecret: "",
   openaiChatModel: "gpt-5.4-mini",
   openaiEmbeddingModel: "text-embedding-3-large",
   openaiBaseUrl: "",

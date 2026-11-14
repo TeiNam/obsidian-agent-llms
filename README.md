@@ -1,7 +1,7 @@
 # Agent LLMs
 
 ![TypeScript](https://img.shields.io/badge/TypeScript-6.0-blue.svg)
-![Obsidian](https://img.shields.io/badge/Obsidian-1.7.2%2B-7C3AED.svg)
+![Obsidian](https://img.shields.io/badge/Obsidian-1.13.2%2B-7C3AED.svg)
 ![Platforms](https://img.shields.io/badge/Platforms-Desktop%20%7C%20Mobile-blue.svg)
 ![AWS Bedrock](https://img.shields.io/badge/AWS-Bedrock-FF9900.svg)
 ![Google Gemini](https://img.shields.io/badge/Google-Gemini-4285F4.svg)
@@ -14,7 +14,7 @@
 
 [English](README.md) | [한국어](README-KR.md) | [日本語](README-JA.md)
 
-This documentation describes **0.7.19**. See the [changelog](CHANGELOG.md) for version history.
+This documentation describes **0.8.0**. See the [changelog](CHANGELOG.md) for version history.
 
 An AI assistant sidebar plugin for Obsidian with multi-provider backend support — AWS Bedrock, Google Gemini, OpenAI, and Ollama.
 
@@ -65,7 +65,7 @@ An AI assistant sidebar plugin for Obsidian with multi-provider backend support 
 
 ## Installation
 
-Supports desktop, phones, and tablets with Obsidian 1.7.2 or later. Saving mobile API keys requires **1.11.4 or later**; older versions keep new keys only for the current session.
+Supports desktop, phones, and tablets with Obsidian **1.13.2 or later**.
 
 Obsidian 1.13+ settings search can find the settings shown for the current backend. Earlier Obsidian versions retain the settings screen.
 
@@ -110,7 +110,7 @@ The sidebar icon, model list, and branding update dynamically when you switch.
 
 ### 2. Configure Credentials
 
-**Bedrock:** Set the AWS Region and configure authentication. On PC the plugin tries **Roles Anywhere profile → SSO profile → Bedrock API key** in that order (enter `~/.aws/config` profile names); mobile uses only the **Bedrock API key** (AWS Console → Bedrock → API keys). If a profile works, the API key can stay empty. The plugin does not refresh the API key automatically; replace it when it expires.
+**Bedrock:** Set the AWS Region and configure authentication. On PC the plugin tries **Roles Anywhere profile → SSO profile → Bedrock API key** in that order (enter `~/.aws/config` profile names); mobile uses only the **Bedrock API key** (AWS Console → Bedrock → API keys). If a profile works, the API key can stay unselected. The plugin does not refresh the API key automatically; replace the secret's value when it expires.
 
 Key issuance, model access, and using multiple machines: [Bedrock setup guide](docs/bedrock-setup-en.md)
 
@@ -124,15 +124,15 @@ Required IAM permissions:
 - `bedrock:ListInferenceProfiles`
 - `bedrock:CallWithBearerToken` (API key only)
 
-**Gemini:** Enter your API key from [Google AI Studio](https://aistudio.google.com/).
+**Gemini:** Select or create a secret that holds your API key from [Google AI Studio](https://aistudio.google.com/).
 
-**OpenAI:** Enter your API key. To use an OpenAI-compatible endpoint, set the base URL including `/v1`; leave it empty for the official API.
+**OpenAI:** Select or create a secret that holds your API key. To use an OpenAI-compatible endpoint, set the base URL including `/v1`; leave it empty for the official API.
 
 **Ollama:** Enter the server base URL, or leave it empty to use `http://localhost:11434`. No API key is needed.
 
-> **Key storage:** Desktop uses an OS-keychain-backed local file; mobile uses Obsidian SecretStorage. New keys are kept out of the vault's `data.json`. Enter keys separately on each device.
+> **Key storage:** API keys are kept in Obsidian's keychain (Settings → Keychain), on desktop and mobile alike. Each key field lets you pick or create a secret, and the vault's `data.json` stores only the secret's name. Secrets are stored per vault and per device, so create a secret with the same name on each device and vault you use.
 
-Desktop encryption or file-write failures preserve the existing credential file and show a notice. Legacy keys are removed from `data.json` after successful local storage, except that mobile preserves unreadable desktop ciphertext for desktop migration and never uses it as an API key. Unsaved new keys remain available only for the current session. Check the mobile app version (1.11.4+) or desktop keychain/file access, then save again.
+Keys saved by earlier versions are moved into the keychain the first time a vault loads: the desktop credential file (`agent-llms-credentials.json` under Electron's `userData`), the single mobile SecretStorage entry, and any key left in `data.json`. The desktop file is shared by every vault on that computer, so it is left in place; a vault that has moved its keys does not read it again. If the OS keychain is locked, the move is retried on the next start. Mobile preserves unreadable desktop ciphertext in `data.json` for desktop migration and never uses it as an API key.
 
 ### 3. Open the Sidebar
 
@@ -241,10 +241,10 @@ No data is sent to any third-party analytics or tracking services.
 
 ## System Access
 
-Process execution, filesystem access outside the vault, and MCP environment variables apply only on desktop. Mobile keys use Obsidian SecretStorage; vault and clipboard access are shared. MCP servers have their own access privileges.
+Process execution, filesystem access outside the vault, and MCP environment variables apply only on desktop. API keys are kept in Obsidian's keychain on every platform; vault and clipboard access are shared. MCP servers have their own access privileges.
 
 - **Process execution** (`child_process.spawn`) — Saved MCP commands run on startup or reconnection with `shell: false`. The plugin does not insert a shell, but it does not sandbox the command or scripts supplied as arguments. No server configuration means no server process. A direct child that remains alive three seconds after stopping receives a force-kill signal.
-- **Filesystem access outside the vault** (Node `fs`) — AI backend keys are encrypted in `agent-llms-credentials.json` under Electron's `userData` directory. A complete temporary file with mode `0600` replaces the destination; legacy credential files are copied within the same directory. Encryption/write failures preserve the previous file and show a notice. Legacy keys in `data.json` are removed only after local storage succeeds. Newly entered keys remain in memory if saving fails; resolve the issue and save again before restarting. MCP executable lookup uses Node's `spawn` and `PATH`.
+- **Filesystem access outside the vault** (Node `fs`) — Earlier versions kept AI backend keys encrypted in `agent-llms-credentials.json` under Electron's `userData` directory. The plugin reads that file once per vault to move the keys into Obsidian's keychain, and does not modify or delete it. Credential files of legacy plugin IDs are copied within the same directory first. MCP executable lookup uses Node's `spawn` and `PATH`.
 - **Environment variables** — Only `PATH`, `HOME`, `USERPROFILE`, `APPDATA`, `LOCALAPPDATA`, `SYSTEMROOT`, `SYSTEMDRIVE`, `COMSPEC`, `PATHEXT`, `TMPDIR`, `TMP`, `TEMP`, `LANG`, `LC_ALL`, and `LC_CTYPE` are inherited by default. Per-server `env` overrides are then applied. Other tokens and runtime options are not passed automatically. A server controls how it uses or transmits values explicitly provided to it.
 - **Vault enumeration** — Search, Graph RAG indexing, Second Brain, and file selection use Obsidian's file-list APIs. Indexing splits notes and supported text attachments into chunks and **sends them to the configured embedding API**. Attached files and notes, and tool-read content, can also enter model requests. Remote endpoints receive this content; local Ollama keeps these requests on the device.
 - **Clipboard** — Written when you press a message's copy button and read when you paste into chat. Success appears only after the write completes; failures show a notice.

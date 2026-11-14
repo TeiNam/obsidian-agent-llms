@@ -64,62 +64,34 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function storage(initial: Record<string, unknown>) {
-  let data = { ...initial };
-  return {
-    loadData: async () => data,
-    saveData: vi.fn(async (next: unknown) => { data = next as Record<string, unknown>; }),
-    current: () => data,
-  };
-}
+/** 예전 PC 버전의 형식: "enc:" + base64(OS 키체인 암호문). 테스트의 키체인은 평문을 그대로 돌려준다. */
+const encrypted = (value: string) => `enc:${Buffer.from(value).toString("base64")}`;
 
-describe("자격증명 영속화", () => {
-  it("쓰기 실패 후에도 마이그레이션 원본을 보존하고 재시도 성공 후 제거한다", async () => {
-    const { persistSettingsWithCredentials, loadCredentialsFromLocal } = api;
-    const store = storage({ geminiApiKey: "legacy-key", language: "en" });
-    fs.writeFileSync.mockImplementationOnce(() => { throw new Error("EACCES"); });
-    const settings = { geminiApiKey: "legacy-key", language: "ko" };
-
-    expect(await persistSettingsWithCredentials(settings, store)).toBe(false);
-    expect(store.current()).toEqual(settings);
-    expect(await persistSettingsWithCredentials(settings, store)).toBe(true);
-    expect(store.current()).toEqual({ geminiApiKey: "", language: "ko" });
-    expect(loadCredentialsFromLocal()).toEqual({ geminiApiKey: "legacy-key" });
+describe("예전 PC 자격증명 파일 읽기", () => {
+  it("암호화된 키를 복호화해 돌려준다", () => {
+    files.set(credentialPath, JSON.stringify({ geminiApiKey: encrypted("g-key"), openaiApiKey: encrypted("o-key") }));
+    expect(api.loadCredentialsFromLocal()).toEqual({ geminiApiKey: "g-key", openaiApiKey: "o-key" });
   });
 
-  it("키체인을 사용할 수 없어도 기존 파일을 보존하며 새 평문 키를 볼트에 쓰지 않는다", async () => {
-    const { persistSettingsWithCredentials } = api;
-    files.set(credentialPath, '{"geminiApiKey":"enc:old"}');
+  it("파일이 없으면 빈 객체다", () => {
+    expect(api.loadCredentialsFromLocal()).toEqual({});
+  });
+
+  it("OS 키체인을 쓸 수 없으면 암호문을 그대로 돌려줘 호출부가 가려낼 수 있게 한다", () => {
+    files.set(credentialPath, JSON.stringify({ geminiApiKey: encrypted("g-key") }));
     encryptionAvailable = false;
-    const store = storage({ geminiApiKey: "", language: "en" });
-    expect(await persistSettingsWithCredentials({ geminiApiKey: "new-key", language: "ko" }, store)).toBe(false);
-    expect(store.current()).toEqual({ geminiApiKey: "", language: "ko" });
-    expect(files.get(credentialPath)).toBe('{"geminiApiKey":"enc:old"}');
+    const loaded = api.loadCredentialsFromLocal();
+    expect(loaded).toEqual({ geminiApiKey: encrypted("g-key") });
+    expect(api.isEncrypted(loaded.geminiApiKey)).toBe(true);
+  });
+
+  it("읽기만 하고 파일을 고치거나 지우지 않는다", () => {
+    const content = JSON.stringify({ geminiApiKey: encrypted("g-key") });
+    files.set(credentialPath, content);
+    api.loadCredentialsFromLocal();
+    expect([...files.entries()]).toEqual([[credentialPath, content]]);
     expect(fs.writeFileSync).not.toHaveBeenCalled();
-  });
-
-  it("교체 실패 시 기존 암호문을 유지하고 임시 파일을 제거한다", async () => {
-    const { saveCredentialsToLocal } = api;
-    files.set(credentialPath, '{"geminiApiKey":"enc:old"}');
-    fs.renameSync.mockImplementationOnce(() => { throw new Error("EACCES"); });
-    expect(saveCredentialsToLocal({ geminiApiKey: "new-key" })).toBe(false);
-    expect([...files.entries()]).toEqual([[credentialPath, '{"geminiApiKey":"enc:old"}']]);
-  });
-
-  it("기존 마이그레이션 키가 있어도 실패한 새 키로 덮어쓰지 않는다", async () => {
-    const { persistSettingsWithCredentials } = api;
-    encryptionAvailable = false;
-    const store = storage({ geminiApiKey: "enc:original" });
-    await persistSettingsWithCredentials({ geminiApiKey: "replacement" }, store);
-    expect(store.current().geminiApiKey).toBe("enc:original");
-  });
-
-  it("사용자가 키를 비우면 기존 자격증명을 삭제하고 새 파일 권한은 0600이다", async () => {
-    const { saveCredentialsToLocal } = api;
-    files.set(credentialPath, '{"geminiApiKey":"enc:old"}');
-    expect(saveCredentialsToLocal({ geminiApiKey: "" })).toBe(true);
-    expect(files.get(credentialPath)).toBe("{}");
-    expect(fs.writeFileSync.mock.calls[0][2]).toEqual({ encoding: "utf-8", mode: 0o600 });
+    expect(fs.unlinkSync).not.toHaveBeenCalled();
   });
 
   it("구 플러그인 파일 복사 실패 후에도 다음 실행에서 다시 이전할 수 있다", async () => {
@@ -134,51 +106,32 @@ describe("자격증명 영속화", () => {
   });
 });
 
-describe("모바일 SecretStorage", () => {
-  function secrets(initial = "{}") {
-    let value = initial;
-    return {
-      getSecret: vi.fn(() => value),
-      setSecret: vi.fn((_id: string, next: string) => { value = next; }),
-    } as any;
+describe("예전 모바일 단일 항목 읽기", () => {
+  function secrets(initial: string | null) {
+    return { getSecret: vi.fn(() => initial) } as any;
   }
 
-  it("키를 한 항목으로 저장하고 재로드하며 볼트에는 PC 암호문만 보존한다", async () => {
-    const secretStorage = secrets();
-    const store = storage({ bedrockApiKey: "enc:desktop-key", language: "en" });
-    const keys = { geminiApiKey: "mobile-gemini", bedrockApiKey: "mobile-bedrock" };
-
-    expect(await api.persistSettingsWithCredentials({ ...keys, language: "ko" }, store, secretStorage)).toBe(true);
-    expect(secretStorage.setSecret).toHaveBeenCalledTimes(1);
-    expect(api.loadCredentialsFromLocal(secretStorage)).toEqual(keys);
-    expect(store.current()).toEqual({ geminiApiKey: "", bedrockApiKey: "enc:desktop-key", language: "ko" });
-    expect(fs.writeFileSync).not.toHaveBeenCalled();
-
-    expect(api.saveCredentialsToLocal({ geminiApiKey: "", bedrockApiKey: "" }, secretStorage)).toBe(true);
-    expect(api.loadCredentialsFromLocal(secretStorage)).toEqual({});
+  it("한 항목에 JSON으로 저장한 키를 돌려준다", () => {
+    const secretStorage = secrets('{"geminiApiKey":"mobile-gemini","bedrockApiKey":"mobile-bedrock"}');
+    expect(api.loadCredentialsFromLocal(secretStorage)).toEqual({
+      geminiApiKey: "mobile-gemini",
+      bedrockApiKey: "mobile-bedrock",
+    });
+    expect(secretStorage.getSecret).toHaveBeenCalledExactlyOnceWith("agent-llms-credentials");
   });
 
-  it("모바일 저장 실패 시 이전 키와 볼트의 마이그레이션 원본을 보존한다", async () => {
-    const secretStorage = secrets('{"geminiApiKey":"old-key"}');
-    secretStorage.setSecret.mockImplementationOnce(() => { throw new Error("locked"); });
-    const store = storage({ geminiApiKey: "legacy-key", language: "en" });
-    expect(await api.persistSettingsWithCredentials({ geminiApiKey: "new-key", language: "ko" }, store, secretStorage)).toBe(false);
-    expect(api.loadCredentialsFromLocal(secretStorage)).toEqual({ geminiApiKey: "old-key" });
-    expect(store.current()).toEqual({ geminiApiKey: "legacy-key", language: "ko" });
+  it("항목이 없으면 빈 객체다", () => {
+    expect(api.loadCredentialsFromLocal(secrets(null))).toEqual({});
   });
 
-  it("구버전 모바일은 새 키를 평문으로 저장하거나 PC 저장소로 폴백하지 않는다", async () => {
-    const store = storage({ language: "en" });
-    expect(await api.persistSettingsWithCredentials({ openaiApiKey: "new-key", language: "ko" }, store, null)).toBe(false);
-    expect(store.current()).toEqual({ openaiApiKey: "", language: "ko" });
-    expect(api.loadCredentialsFromLocal(null)).toEqual({});
-    expect(fs.writeFileSync).not.toHaveBeenCalled();
-  });
-
-  it("해독 불가능한 PC 암호문은 모바일 키로 저장하거나 반환하지 않는다", () => {
+  it("해독 불가능한 PC 암호문과 잘못된 타입은 키로 돌려주지 않는다", () => {
     const secretStorage = secrets('{"bedrockApiKey":"enc:desktop-key","openaiApiKey":42,"language":"ja"}');
     expect(api.loadCredentialsFromLocal(secretStorage)).toEqual({});
-    expect(api.saveCredentialsToLocal({ bedrockApiKey: "enc:desktop-key" }, secretStorage)).toBe(false);
-    expect(secretStorage.setSecret).not.toHaveBeenCalled();
+  });
+
+  it("모바일에서는 PC 파일을 읽지 않는다", () => {
+    files.set(credentialPath, JSON.stringify({ geminiApiKey: encrypted("g-key") }));
+    expect(api.loadCredentialsFromLocal(secrets(null))).toEqual({});
+    expect(fs.readFileSync).not.toHaveBeenCalled();
   });
 });

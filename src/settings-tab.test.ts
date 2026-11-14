@@ -117,17 +117,16 @@ describe("normalizeChunkConfig: 청크 설정 보정", () => {
 //
 // Obsidian의 Setting 빌더와 DOM API는 앱 내에서만 동작하므로,
 // vi.hoisted로 "캡처형(capturing) Setting 모킹"과 "범용 element/component 프록시"를
-// 구성하여 display()와 내부 헬퍼(addBaseUrlSetting / addProviderModelDropdown)를
+// 구성하여 설정 정의의 render와 내부 헬퍼(addBaseUrlSetting / addProviderModelDropdown)를
 // 실제로 실행하고 그 결과(생성된 Setting 이름, 입력 마스킹, 옵션/값, Notice)를 관찰한다.
 // (Req 2.10, 3.7, 7.9, 7.9.1, 12.1~12.4, 13.1~13.3)
 
 // vi.hoisted: vi.mock 팩토리보다 먼저 평가되어 모킹에서 공유 상태/헬퍼를 사용 가능하게 한다.
 const h = vi.hoisted(() => {
-  // 생성된 Setting 인스턴스 기록 (display/헬퍼 실행 결과 관찰용)
+  // 생성된 Setting 인스턴스 기록 (render/헬퍼 실행 결과 관찰용)
   const settingRegistry: any[] = [];
   // Notice로 표시된 메시지 기록 (base URL 형식 오류 검증용)
   const noticeMessages: string[] = [];
-  const runtime = { declarative: false };
 
   // 범용 element 프록시: 임의의 DOM 메서드 호출을 견디는 체이닝 no-op 스텁.
   // create*/querySelector 등은 새 element를, 알 수 없는 메서드는 자기 자신을 반환한다.
@@ -234,7 +233,7 @@ const h = vi.hoisted(() => {
     }
   }
 
-  return { settingRegistry, noticeMessages, makeEl, makeComp, MockSetting, MockNotice, runtime };
+  return { settingRegistry, noticeMessages, makeEl, makeComp, MockSetting, MockNotice };
 });
 
 // obsidian 모듈을 캡처형 Setting / Notice 로 모킹한다.
@@ -247,7 +246,6 @@ vi.mock("obsidian", () => ({
   setIcon: () => {},
   setTooltip: () => {},
   normalizePath: (p: string) => p,
-  requireApiVersion: () => h.runtime.declarative,
   TFile: class {},
   TFolder: class {},
   Modal: class {
@@ -262,7 +260,6 @@ vi.mock("obsidian", () => ({
     plugin: any;
     containerEl: any = h.makeEl();
     constructor(app?: any, plugin?: any) { this.app = app; this.plugin = plugin; }
-    display() {}
   },
   FuzzySuggestModal: class {
     app: unknown;
@@ -287,6 +284,7 @@ function makeTab(opts?: { settings?: Record<string, unknown>; listModels?: (...a
   const plugin: any = {
     settings: { ...structuredClone(DEFAULT_SETTINGS), ...(opts?.settings ?? {}) },
     saveSettings: vi.fn(async () => {}),
+    refreshApiKeys: vi.fn(),
     recreateAiClient: vi.fn(),
     refreshBranding: vi.fn(),
     clearAllSessions: vi.fn(async () => {}),
@@ -315,11 +313,21 @@ function makeTab(opts?: { settings?: Record<string, unknown>; listModels?: (...a
   return { tab, plugin, app };
 }
 
-function renderDefinition(definition: { name: string; desc?: string; render: (setting: any) => void }) {
+function renderDefinition(definition: { name: string; desc?: string; render?: (setting: any) => void; control?: unknown }) {
   const setting = new h.MockSetting() as any;
   setting.setName(definition.name).setDesc(definition.desc ?? "");
-  definition.render(setting);
+  // 선언형 control 항목은 Obsidian이 컨트롤을 그린다. 여기서는 정의만 기록한다.
+  if (definition.render) definition.render(setting);
+  else setting.control = definition.control;
   return setting;
+}
+
+/** Obsidian이 getSettingDefinitions()의 정의를 화면에 그리는 과정을 흉내 낸다. */
+function renderAll(tab: any): void {
+  for (const section of tab.getSettingDefinitions()) {
+    if (section.heading) (new h.MockSetting() as any).setName(section.heading).setHeading();
+    for (const row of section.items) renderDefinition(row);
+  }
 }
 
 describe("모바일 설정", () => {
@@ -345,13 +353,12 @@ describe("모바일 설정", () => {
 
 describe("Multi-Provider 설정 UI (Task 8.2)", () => {
   beforeEach(() => {
-    // Obsidian 전역 헬퍼(createDiv 등) 스텁 — addToggleVisibilityButton이 bare createDiv 사용
+    // Obsidian 전역 헬퍼(createDiv 등) 스텁
     (globalThis as any).createDiv = () => h.makeEl();
     (globalThis as any).createEl = () => h.makeEl();
     (globalThis as any).createSpan = () => h.makeEl();
     h.settingRegistry.length = 0;
     h.noticeMessages.length = 0;
-    h.runtime.declarative = false;
   });
 
   afterEach(() => {
@@ -382,26 +389,7 @@ describe("Multi-Provider 설정 UI (Task 8.2)", () => {
     }
   });
 
-  it("선언형 렌더링과 구버전 화면이 같은 설정 및 컨트롤을 제공한다", () => {
-    for (const aiBackend of ["gemini", "bedrock", "openai", "ollama"]) {
-      const { tab } = makeTab({ settings: { aiBackend } });
-      h.settingRegistry.length = 0;
-      tab.display();
-      const summarize = () => h.settingRegistry.filter((s: any) => !s.heading).map((s: any) => ({
-        name: s.nameVal, text: s.texts.length, toggle: s.toggles.length,
-        dropdown: s.dropdowns.length, button: s.buttons.length,
-      }));
-      const legacy = summarize();
-      h.settingRegistry.length = 0;
-      for (const section of tab.getSettingDefinitions()) {
-        for (const row of section.items) renderDefinition(row);
-      }
-      expect(summarize()).toEqual(legacy);
-    }
-  });
-
-  it("1.13+에서 언어 변경은 update로 검색 정의와 화면을 갱신한다", async () => {
-    h.runtime.declarative = true;
+  it("언어 변경은 update로 검색 정의와 화면을 갱신한다", async () => {
     const { tab, plugin } = makeTab({ settings: { language: "en" } });
     tab.update = vi.fn();
     const row = tab.getSettingDefinitions().flatMap((section: any) => section.items)
@@ -414,14 +402,33 @@ describe("Multi-Provider 설정 UI (Task 8.2)", () => {
       .map((item: any) => item.name)).toContain(I18N.ko.language);
   });
 
+  it("비밀을 고르면 이름만 설정에 넣고 플러그인의 저장 경로를 거친다", async () => {
+    const { tab, plugin } = makeTab({ settings: { aiBackend: "openai", openaiApiKey: "in-memory-key" } });
+    tab.scheduleModelReload = vi.fn();
+    await tab.setControlValue("openaiApiKeySecret", "my-openai");
+    expect(plugin.settings.openaiApiKeySecret).toBe("my-openai");
+    // 기본 구현처럼 saveData(settings)를 직접 부르면 메모리의 키 값이 data.json에 쓰인다.
+    expect(plugin.refreshApiKeys).toHaveBeenCalledTimes(1);
+    expect(plugin.saveSettings).toHaveBeenCalledTimes(1);
+    expect(tab.scheduleModelReload).toHaveBeenCalledTimes(1);
+  });
+
+  it("비밀 선택을 지우면 빈 이름으로 저장한다", async () => {
+    const { tab, plugin } = makeTab({ settings: { geminiApiKeySecret: "my-gemini" } });
+    tab.scheduleModelReload = vi.fn();
+    await tab.setControlValue("geminiApiKeySecret", null);
+    expect(plugin.settings.geminiApiKeySecret).toBe("");
+    expect(plugin.saveSettings).toHaveBeenCalledTimes(1);
+  });
+
   // --------------------------------------------------------------------------
-  // 백엔드별 조건부 필드 표시/비표시 + password 마스킹 (Req 12.1, 12.2, 3.7)
+  // 백엔드별 조건부 필드 표시/비표시 + API 키는 비밀 선택 (Req 12.1, 12.2, 3.7)
   // --------------------------------------------------------------------------
-  describe("백엔드별 조건부 필드 표시/비표시 + 마스킹", () => {
-    it("OpenAI 백엔드: API 키(마스킹)·base URL·채팅/임베딩 모델 필드를 표시하고 타 백엔드 필드는 숨긴다", () => {
+  describe("백엔드별 조건부 필드 표시/비표시 + 비밀 선택", () => {
+    it("OpenAI 백엔드: API 키(비밀 선택)·base URL·채팅/임베딩 모델 필드를 표시하고 타 백엔드 필드는 숨긴다", () => {
       const { tab } = makeTab({ settings: { aiBackend: "openai", language: "en" } });
       h.settingRegistry.length = 0;
-      tab.display();
+      renderAll(tab);
 
       const names = h.settingRegistry.map((s: any) => s.nameVal);
       // OpenAI 전용 필드 표시 (Req 12.1)
@@ -434,16 +441,16 @@ describe("Multi-Provider 설정 UI (Task 8.2)", () => {
       expect(names).not.toContain(I18N.en.ollamaBaseUrl); // Ollama
       expect(names).not.toContain(I18N.en.apiKey); // Gemini API Key
 
-      // API 키 입력은 password 타입으로 마스킹 (Req 3.7)
+      // API 키는 입력 칸이 아니라 비밀 선택이다. 화면 정의에는 비밀 이름 필드만 들어간다 (Req 3.7)
       const keySetting = h.settingRegistry.find((s: any) => s.nameVal === I18N.en.openaiApiKey);
-      expect(keySetting).toBeTruthy();
-      expect(keySetting.texts[0].inputEl.type).toBe("password");
+      expect(keySetting.control).toEqual({ type: "secret", key: "openaiApiKeySecret" });
+      expect(keySetting.texts).toHaveLength(0);
     });
 
-    it("Ollama 백엔드: 서버 base URL·채팅/임베딩 모델 필드를 표시하고 API 키/마스킹 필드는 없다", () => {
+    it("Ollama 백엔드: 서버 base URL·채팅/임베딩 모델 필드를 표시하고 API 키 선택은 없다", () => {
       const { tab } = makeTab({ settings: { aiBackend: "ollama", language: "en" } });
       h.settingRegistry.length = 0;
-      tab.display();
+      renderAll(tab);
 
       const names = h.settingRegistry.map((s: any) => s.nameVal);
       // Ollama 전용 필드 표시 (Req 12.2)
@@ -455,20 +462,19 @@ describe("Multi-Provider 설정 UI (Task 8.2)", () => {
       expect(names).not.toContain(I18N.en.openaiApiKey);
       expect(names).not.toContain(I18N.en.bedrockApiKeyLabel);
 
-      // Ollama는 API 키가 없으므로 password로 마스킹된 입력이 존재하지 않아야 한다 (Req 12.2)
-      const anyPasswordInput = h.settingRegistry.some(
-        (s: any) => s.texts.some((t: any) => t.inputEl.type === "password"),
-      );
-      expect(anyPasswordInput).toBe(false);
+      // Ollama는 API 키가 없으므로 비밀 선택 항목이 없어야 한다 (Req 12.2)
+      expect(h.settingRegistry.some((s: any) => s.control?.type === "secret")).toBe(false);
     });
 
     it("Gemini 백엔드: OpenAI/Ollama 전용 필드를 표시하지 않는다", () => {
       const { tab } = makeTab({ settings: { aiBackend: "gemini", language: "en" } });
       h.settingRegistry.length = 0;
-      tab.display();
+      renderAll(tab);
 
       const names = h.settingRegistry.map((s: any) => s.nameVal);
       expect(names).toContain(I18N.en.apiKey); // Gemini API Key 표시
+      const keySetting = h.settingRegistry.find((s: any) => s.nameVal === I18N.en.apiKey);
+      expect(keySetting.control).toEqual({ type: "secret", key: "geminiApiKeySecret" });
       expect(names).not.toContain(I18N.en.openaiApiKey);
       expect(names).not.toContain(I18N.en.ollamaBaseUrl);
     });
@@ -659,7 +665,7 @@ describe("Multi-Provider 설정 UI (Task 8.2)", () => {
     // OpenAI/Ollama 백엔드 관련 신규 라벨/설명 키 목록
     const NEW_LABEL_KEYS = [
       "aiBackendLabel", "aiBackendDesc",
-      "openaiAuth", "openaiApiKey", "openaiApiKeyDesc", "openaiApiKeyPlaceholder",
+      "openaiAuth", "openaiApiKey", "openaiApiKeyDesc",
       "openaiBaseUrl", "openaiBaseUrlDesc", "openaiBaseUrlPlaceholder",
       "openaiChatModel", "openaiChatModelDesc",
       "openaiEmbeddingModel", "openaiEmbeddingModelDesc",
