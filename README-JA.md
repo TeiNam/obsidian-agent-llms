@@ -1,7 +1,7 @@
 # Agent LLMs
 
 ![TypeScript](https://img.shields.io/badge/TypeScript-6.0-blue.svg)
-![Obsidian](https://img.shields.io/badge/Obsidian-1.7.2%2B-7C3AED.svg)
+![Obsidian](https://img.shields.io/badge/Obsidian-1.13.2%2B-7C3AED.svg)
 ![Platforms](https://img.shields.io/badge/Platforms-Desktop%20%7C%20Mobile-blue.svg)
 ![AWS Bedrock](https://img.shields.io/badge/AWS-Bedrock-FF9900.svg)
 ![Google Gemini](https://img.shields.io/badge/Google-Gemini-4285F4.svg)
@@ -14,7 +14,7 @@
 
 [English](README.md) | [한국어](README-KR.md) | [日本語](README-JA.md)
 
-このドキュメントは**0.7.19**を対象としています。バージョンごとの変更は[変更履歴](CHANGELOG.md)を参照してください。
+このドキュメントは**0.8.0**を対象としています。バージョンごとの変更は[変更履歴](CHANGELOG.md)を参照してください。
 
 AWS Bedrock、Google Gemini、OpenAI、Ollamaのマルチプロバイダーバックエンドに対応したObsidian AIアシスタントサイドバープラグインです。
 
@@ -65,7 +65,7 @@ AWS Bedrock、Google Gemini、OpenAI、Ollamaのマルチプロバイダーバ�
 
 ## インストール
 
-Obsidian 1.7.2以降のPC・スマートフォン・タブレットに対応します。モバイルのAPIキー保存には**1.11.4以降**が必要です。旧バージョンでは新しいキーは現在のセッションのみ保持されます。
+Obsidian **1.13.2以降**のPC・スマートフォン・タブレットに対応します。
 
 Obsidian 1.13以降の設定検索で現在のバックエンドに表示される設定を探せます。以前のObsidianでは従来の設定画面を利用します。
 
@@ -110,7 +110,7 @@ Obsidian 1.13以降の設定検索で現在のバックエンドに表示され�
 
 ### 2. 認証情報を設定
 
-**Bedrock:** AWSリージョンを設定し、認証を構成します。PCは**Roles Anywhereプロファイル → SSOプロファイル → Bedrock APIキー**の順に試し(`~/.aws/config`のプロファイル名を入力)、モバイルは**Bedrock APIキー**(AWSコンソール → Bedrock → API keys)のみを使います。プロファイルが動作すればAPIキーは空のままで構いません。プラグインはAPIキーを自動更新しないため、期限切れ後は交換してください。
+**Bedrock:** AWSリージョンを設定し、認証を構成します。PCは**Roles Anywhereプロファイル → SSOプロファイル → Bedrock APIキー**の順に試し(`~/.aws/config`のプロファイル名を入力)、モバイルは**Bedrock APIキー**(AWSコンソール → Bedrock → API keys)のみを使います。プロファイルが動作すればAPIキーは選択しなくて構いません。プラグインはAPIキーを自動更新しないため、期限切れ後はシークレットの値を交換してください。
 
 キーの発行、モデルアクセスの確認、複数端末での利用: [Bedrock セットアップガイド](docs/bedrock-setup-ja.md)
 
@@ -124,15 +124,15 @@ Obsidian 1.13以降の設定検索で現在のバックエンドに表示され�
 - `bedrock:ListInferenceProfiles`
 - `bedrock:CallWithBearerToken`(APIキー使用時のみ)
 
-**Gemini:** [Google AI Studio](https://aistudio.google.com/)からAPIキーを入力
+**Gemini:** [Google AI Studio](https://aistudio.google.com/)で取得したAPIキーを入れたシークレットを選択、または新しく作成
 
-**OpenAI:** APIキーを入力。OpenAI互換エンドポイントを使用するには、`/v1`を含むbase URLを設定。空のままにすると公式APIを使用
+**OpenAI:** APIキーを入れたシークレットを選択、または新しく作成。OpenAI互換エンドポイントを使用するには、`/v1`を含むbase URLを設定。空のままにすると公式APIを使用
 
 **Ollama:** サーバーのbase URLを入力。空のままにすると`http://localhost:11434`を使用。APIキーは不要
 
-> **キーの保存:** PCはOSキーチェーンを使ったローカルファイル、モバイルはObsidian SecretStorageに保存します。新しいキーはボルトの`data.json`に書き込まず、端末ごとに入力します。
+> **キーの保存:** APIキーはPC・モバイルともにObsidianのキーチェーン（設定 → キーチェーン）に保管します。キーの項目ごとにシークレットを選択または作成でき、ボルトの`data.json`にはシークレットの名前だけを保存します。シークレットはボルト・端末ごとに別々に保存されるため、使用する端末とボルトごとに同じ名前のシークレットを作成してください。
 
-PCで暗号化・ファイル保存に失敗した場合は通知し、既存ファイルを保持します。旧`data.json`のキーはローカル保存成功後に除去しますが、モバイルで復号できないPC暗号文はPCでの移行用に保持し、APIキーとして使いません。保存できなかった新しいキーは現在のセッションのみ利用できます。モバイルではアプリのバージョン（1.11.4以降）、PCではキーチェーン・ファイルアクセスを確認して再保存してください。
+以前のバージョンが保存したキーは、ボルトを最初に開いたときにキーチェーンへ移します。対象はPCの資格情報ファイル（Electronの`userData`内の`agent-llms-credentials.json`）、モバイルのSecretStorageの単一項目、`data.json`に残ったキーです。PCのファイルは同じPCのすべてのボルトが共有するため削除せず、キーを移したボルトはファイルを再度読みません。OSのキーチェーンがロックされている場合は次回の起動時に再試行します。モバイルで復号できないPC暗号文はPCでの移行用に`data.json`に保持し、APIキーとして使いません。
 
 ### 3. サイドバーを開く
 
@@ -239,10 +239,10 @@ APIキー、プロキシ、`DOCKER_HOST`などはサーバーごとの`env`に�
 
 ## システムアクセス
 
-プロセス実行・ボルト外のファイルアクセス・MCP環境変数はPC専用です。モバイルのキーはObsidian SecretStorageに保存し、ボルト・クリップボードへのアクセスは共通です。MCPサーバー自体の権限は別途適用されます。
+プロセス実行・ボルト外のファイルアクセス・MCP環境変数はPC専用です。APIキーはすべての端末でObsidianのキーチェーンに保管し、ボルト・クリップボードへのアクセスは共通です。MCPサーバー自体の権限は別途適用されます。
 
 - **プロセス実行**(`child_process.spawn`) — 保存したMCP設定の起動・再接続時に、指定コマンドを`shell: false`で実行します。シェルは自動挿入しませんが、コマンドや引数のスクリプトを隔離するサンドボックスではありません。設定がなければ起動しません。停止から3秒経っても終了しない直接の子プロセスには強制終了シグナルを送ります。
-- **ボルト外のファイルアクセス**(Node `fs`) — AIバックエンドのキーはElectronの`userData`内の`agent-llms-credentials.json`に暗号化して保存します。同じディレクトリに権限`0600`の一時ファイルを完成させてから置換し、旧資格情報ファイルも同ディレクトリ内でコピーします。暗号化・保存に失敗すると通知し、既存ファイルを保持します。旧`data.json`のキーはローカル保存成功後にのみ除去します。保存できなかった新しいキーはメモリにのみ残るため、再起動前に問題を解消して再保存してください。MCP実行ファイルの検索はNodeの`spawn`と`PATH`処理に任せます。
+- **ボルト外のファイルアクセス**(Node `fs`) — 以前のバージョンはAIバックエンドのキーをElectronの`userData`内の`agent-llms-credentials.json`に暗号化して保存していました。プラグインはこのファイルをボルトごとに一度だけ読み、キーをObsidianのキーチェーンへ移します。ファイルの変更や削除は行いません。旧プラグインIDの資格情報ファイルは、その前に同じディレクトリ内でコピーします。MCP実行ファイルの検索はNodeの`spawn`と`PATH`処理に任せます。
 - **環境変数** — 既定では`PATH`、`HOME`、`USERPROFILE`、`APPDATA`、`LOCALAPPDATA`、`SYSTEMROOT`、`SYSTEMDRIVE`、`COMSPEC`、`PATHEXT`、`TMPDIR`、`TMP`、`TEMP`、`LANG`、`LC_ALL`、`LC_CTYPE`のみ継承し、サーバーごとの`env`で上書きします。他のトークンやランタイム設定は自動転送しません。明示的に渡した値の使用・送信はサーバーに依存します。
 - **ボルト全体の列挙** — 検索、Graph RAG、Second Brain、ファイル選択にObsidianのファイル一覧APIを使います。索引作成ではノートと対応テキスト添付を分割し、**設定した埋め込みAPIへ送信**します。添付したファイル・ノートやツールで読んだ内容もモデルへのリクエストに含まれる場合があります。ローカルOllama以外の外部エンドポイントでは内容が端末外へ送られます。
 - **クリップボード** — コピーボタンで書き込み、チャットへの貼り付け時に読み取ります。書き込み完了後に成功表示を出し、失敗時は通知します。

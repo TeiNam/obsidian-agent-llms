@@ -1,6 +1,6 @@
 # Bedrock Authentication Setup Guide
 
-This guide describes **0.7.19**. See the [README](../README.md) for installation and basic usage.
+This guide describes **0.8.0**. See the [README](../README.md) for installation and basic usage.
 
 On PC, the Agent LLMs Bedrock backend authenticates in the order below. Mobile uses only the Bedrock API key.
 
@@ -11,7 +11,7 @@ On PC, the Agent LLMs Bedrock backend authenticates in the order below. Mobile u
 | 3 | Bedrock API key (bearer token) | **Bedrock API key** | PC and mobile |
 
 - Each request tries the methods in order. If profile authentication fails (certificate or helper error, expired SSO session, and so on), the next method is used, and a notice is shown once when switching to the API key. When an earlier method works again, the plugin switches back automatically.
-- If a profile works, you can leave the API key empty.
+- If a profile works, you can leave the API key unselected.
 - Request errors such as access denied or throttling are not retried with another method.
 - Only the profiles entered in settings are used. The plugin never falls back to the SDK default credential chain (`[default]` profile, environment variables, IAM roles).
 
@@ -30,7 +30,7 @@ Profile names are not secrets, so they are stored in the vault `data.json` and s
 |---|---|
 | AWS account | Access to the models you intend to use in the selected region |
 | IAM permissions | The invocation, listing, and API-key permissions below; see section 1 for first-use setup |
-| Plugin | Obsidian 1.7.2+, desktop and mobile. Mobile key storage requires 1.11.4+ |
+| Plugin | Obsidian 1.13.2+, desktop and mobile |
 
 ```
 bedrock:InvokeModelWithResponseStream
@@ -71,7 +71,7 @@ There are two types:
 | Short-term | Until session expiry, up to 12 hours | AWS recommends this for production; replacement is manual in this plugin |
 | Long-term | Expiration set at issuance, subject to account policy | AWS recommends this for exploration only |
 
-The plugin does not refresh pasted keys automatically. Choose the key type and lifetime using the [official AWS API-key guide](https://docs.aws.amazon.com/bedrock/latest/userguide/api-keys.html), then replace expired keys in settings.
+The plugin does not refresh keys automatically. Choose the key type and lifetime using the [official AWS API-key guide](https://docs.aws.amazon.com/bedrock/latest/userguide/api-keys.html), then replace the secret's value in the keychain when a key expires.
 
 Keys are shown only once, immediately after issuance. Copy it then.
 
@@ -82,7 +82,7 @@ Keys are shown only once, immediately after issuance. Copy it then.
 1. Open Settings → **Agent LLMs**
 2. Set **AI Backend** to `Bedrock`
 3. To use profiles on PC, enter `~/.aws/config` profile names in **Roles Anywhere profile** and/or **SSO profile**. One is enough
-4. For mobile or as a fallback, paste the issued key into **Bedrock API Key** (the eye icon reveals the value)
+4. For mobile or as a fallback, select or create a secret that holds the issued key in **Bedrock API Key**
 5. Enter your target **AWS Region** (e.g., `ap-northeast-2`). Short-term keys work only in the region where they were generated
 6. Choose from the **Bedrock Chat Model** and **Bedrock Embedding Model** dropdowns
 
@@ -90,21 +90,20 @@ If the model dropdowns are empty, see Troubleshooting below. Obsidian 1.13+ sett
 
 ### Key Storage and Migration
 
-On desktop, new API keys are encrypted with the OS keychain (macOS Keychain, Windows DPAPI, Linux libsecret) and stored in `agent-llms-credentials.json` under Electron's `userData` directory. A complete temporary file with mode `0600` replaces the destination in the same directory.
+API keys are kept in Obsidian's keychain (Settings → Keychain), on desktop and mobile alike. When you select or create a secret in **Bedrock API Key**, the vault's `data.json` stores only that secret's name. Secrets in the keychain are stored per vault and per device.
 
-If encryption, writing, or file replacement fails, the plugin shows a notice and preserves the existing local file. Unsaved new keys remain in memory only. **Resolve the keychain or write-permission issue and save again before restarting.**
+Keys saved by earlier versions are moved into the keychain the first time a vault loads, and selected as a secret named `agent-llms-bedrock-key`. The earlier desktop credential file (`agent-llms-credentials.json` under Electron's `userData`) is shared by the other vaults on the same computer, so it is left in place; a vault that has moved its keys does not read it again. If the OS keychain is locked and the file cannot be decrypted, the move is retried on the next start. See also the [mobile setup guide (Korean)](mobile-support.md).
 
-Mobile uses Obsidian SecretStorage (1.11.4+). Older versions or storage failures leave new keys available only for the current session. See the [mobile setup guide (Korean)](mobile-support.md).
-
-Keys left in the vault's `data.json` by older versions are **removed only after local storage succeeds**. Mobile preserves unreadable desktop ciphertext for desktop migration and never uses it as an API key. While migration is failing, those older keys can remain in the vault and be synced. Successfully migrated keys are excluded from vault sync.
+Keys left in the vault's `data.json` by older versions are **removed only after they are moved into the keychain**. Mobile preserves unreadable desktop ciphertext for desktop migration and never uses it as an API key. Until the move succeeds, those older keys can remain in the vault and be synced.
 
 ## Using Multiple Devices
 
-**Enter the API key on each device and confirm that local storage succeeds.** Enter a replacement when the key expires or is rotated.
+**Create a secret with the same name on each device and vault, and select it in settings.** Only the secret's name is synced, so with the same name each device uses the value in its own keychain. When a key expires or is rotated, change the secret's value in the keychain.
 
 | Item | Synced | Action |
 |---|---|---|
-| Successfully migrated API key | ✗ (intentional) | Enter in settings on each device |
+| API key value (secret in the keychain) | ✗ (intentional) | Create a secret with the same name on each device and vault |
+| Name of the selected secret | ○ (when vault is synced) | Automatic |
 | Plugin settings (model, region) | ○ (when vault is synced) | Automatic |
 | Vault index | ○ | See below |
 
@@ -132,9 +131,9 @@ On PC, every configured profile failed to provide credentials and no API key is 
 
 ### `Bedrock API 키가 설정되지 않았습니다` (Bedrock API key is not configured)
 
-On PC, configure a profile or enter the key in settings. The plugin **intentionally fails** when all credentials are empty — falling back to the AWS SDK's default credential chain could silently pick up the `[default]` profile in `~/.aws/credentials`, environment variables, or IAM roles, sending your notes and charges to an account you did not choose.
+On PC, configure a profile or select a secret that holds the key in settings. The plugin **intentionally fails** when all credentials are empty — falling back to the AWS SDK's default credential chain could silently pick up the `[default]` profile in `~/.aws/credentials`, environment variables, or IAM roles, sending your notes and charges to an account you did not choose.
 
-If this appears after restarting, check whether a credential-save failure notice appeared earlier. On desktop, check the OS keychain and write access to Electron's `userData` directory; on mobile, check the app version (1.11.4+). Then enter and save the key again.
+If this appears even though a secret is selected, check that a secret with that name exists in the keychain of this device and vault. Only the secret's name is synced; its value is separate for each device and vault.
 
 ### Model Dropdowns Are Empty
 
