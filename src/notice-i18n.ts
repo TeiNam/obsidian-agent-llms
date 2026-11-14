@@ -11,8 +11,7 @@ import type { Locale } from "./types";
 
 export const NOTICE_I18N = {
   en: {
-    credentialsNotSaved: "API keys could not be saved securely. New keys are available only for this session; previously stored keys are preserved. Check the OS keychain and file permissions, then save again.",
-    credentialsNotSavedMobile: "API keys could not be saved on this device. New keys are available only for this session. Key storage requires Obsidian 1.11.4 or later. Check your app version and save again.",
+    keychainImportFailed: "Saved API keys could not be moved into Obsidian's keychain. They remain where they were, and the move is retried on the next start. You can also select or create a secret for each key in settings.",
     // ---- 명령 팔레트 ----
     cmdOpenAssistant: "Open assistant",
     cmdIndexVault: "Index vault",
@@ -181,8 +180,7 @@ export const NOTICE_I18N = {
   },
 
   ko: {
-    credentialsNotSaved: "API 키를 안전하게 저장하지 못했습니다. 새 키는 이번 세션에서만 사용되며 기존 저장 키는 보존됩니다. OS 키체인과 파일 권한을 확인한 뒤 다시 저장해 주세요.",
-    credentialsNotSavedMobile: "이 기기에 API 키를 저장하지 못했습니다. 새 키는 이번 세션에서만 사용됩니다. 키 저장에는 Obsidian 1.11.4 이상이 필요합니다. 앱 버전을 확인한 뒤 다시 저장해 주세요.",
+    keychainImportFailed: "저장된 API 키를 Obsidian 키체인으로 옮기지 못했습니다. 키는 원래 자리에 그대로 있으며 다음 실행 때 다시 시도합니다. 설정에서 키마다 비밀을 직접 고르거나 만들 수도 있습니다.",
     // ---- 명령 팔레트 ----
     cmdOpenAssistant: "어시스턴트 열기",
     cmdIndexVault: "볼트 인덱싱",
@@ -348,8 +346,7 @@ export const NOTICE_I18N = {
   },
 
   ja: {
-    credentialsNotSaved: "APIキーを安全に保存できませんでした。新しいキーは今回のセッションでのみ使用され、以前のキーは保持されます。OSのキーチェーンとファイル権限を確認し、再度保存してください。",
-    credentialsNotSavedMobile: "この端末にAPIキーを保存できませんでした。新しいキーは今回のセッションでのみ使用されます。キーの保存にはObsidian 1.11.4以降が必要です。アプリのバージョンを確認し、再度保存してください。",
+    keychainImportFailed: "保存済みのAPIキーをObsidianのキーチェーンに移せませんでした。キーは元の場所に残っており、次回の起動時に再試行します。設定でキーごとにシークレットを選択または作成することもできます。",
     // ---- 명령 팔레트 ----
     cmdOpenAssistant: "アシスタントを開く",
     cmdIndexVault: "ボルトをインデックス",

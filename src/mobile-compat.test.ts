@@ -26,18 +26,31 @@ function element(): any {
   return el;
 }
 
-function runtime(mobile = true, initial: Record<string, unknown> = {}, modern = true) {
+/**
+ * @param native PC에서 require가 돌려줄 모듈 대역 (electron, fs 등). 없는 모듈은 실제 Node 모듈을 쓴다.
+ */
+function runtime(mobile = true, initial: Record<string, unknown> = {}, native: Record<string, unknown> = {}) {
   let data = { aiBackend: "gemini", confirmToolExecution: false, ...initial };
-  let secret: string | null = null;
   const nativeLoads: string[] = [];
+  // Obsidian SecretStorage: 볼트별 키체인. 값이 바뀌면 "changed"를 알린다.
+  const secrets = new Map<string, string>();
+  const secretListeners: Array<() => void> = [];
   const secretStorage = {
-    getSecret: vi.fn(() => secret),
-    setSecret: vi.fn((_id: string, value: string) => { secret = value; }),
+    getSecret: vi.fn((id: string) => secrets.get(id) ?? null),
+    setSecret: vi.fn((id: string, value: string) => {
+      secrets.set(id, value);
+      for (const listener of secretListeners) listener();
+    }),
+    on: (_name: string, listener: () => void) => { secretListeners.push(listener); return {}; },
   };
+  // 볼트·기기별 로컬 저장소 (app.loadLocalStorage / saveLocalStorage)
+  const localStorage = new Map<string, unknown>();
   const file = Object.assign(new obsidian.TFile(), { path: "note.md", basename: "note", extension: "md" });
   let note = "# 제목\n\n원문";
   const app = {
-    secretStorage: modern ? secretStorage : undefined,
+    secretStorage,
+    loadLocalStorage: (key: string) => localStorage.get(key) ?? null,
+    saveLocalStorage: (key: string, value: unknown) => { localStorage.set(key, value); },
     vault: {
       configDir: ".obsidian",
       adapter: { exists: vi.fn(async () => false), read: vi.fn(), write: vi.fn() },
@@ -75,16 +88,18 @@ function runtime(mobile = true, initial: Record<string, unknown> = {}, modern = 
       ...obsidian, Plugin, ItemView, Component: class {}, MarkdownView: class {},
       WorkspaceLeaf: class {}, MarkdownRenderer: { render: vi.fn() },
       Platform: { isMobileApp: mobile, isDesktopApp: !mobile },
-      requireApiVersion: () => modern, addIcon: vi.fn(), getAllTags: () => [],
+      addIcon: vi.fn(), getAllTags: () => [],
     };
     nativeLoads.push(id);
     if (mobile) throw new Error(`Unavailable on mobile: ${id}`);
-    return nodeRequire(id);
+    return id in native ? native[id] : nodeRequire(id);
   };
   runInNewContext(bundle, {
     module, exports: module.exports, require, console,
     TextEncoder, TextDecoder, AbortController, URL, URLSearchParams, Uint8Array, setTimeout, clearTimeout,
     TransformStream, ReadableStream, WritableStream, Blob, Request, Response, Headers,
+    // Buffer는 PC(Electron)에만 있는 전역이다.
+    ...(mobile ? {} : { Buffer }),
     window: { crypto: globalThis.crypto, setTimeout, clearTimeout, setInterval: vi.fn(() => 1) },
   });
   const plugin = new module.exports.default();
@@ -127,16 +142,17 @@ describe("모바일 배포 번들", () => {
     expect(app.workspace.revealLeaf).toHaveBeenCalledExactlyOnceWith(leaf);
   });
 
-  it("모바일은 PC 암호문을 전송하지 않고 자체 키 저장·재로드 후에도 PC 원본을 보존한다", async () => {
+  it("모바일은 PC 암호문을 키로 쓰지 않고, 비밀을 골라 저장·재로드한 뒤에도 PC 원본을 보존한다", async () => {
     const { plugin, data, secretStorage } = runtime(true, { bedrockApiKey: "enc:pc-only" });
     await plugin.loadSettings();
     expect(plugin.settings.bedrockApiKey).toBe("");
-    plugin.settings.bedrockApiKey = "mobile-key";
+    secretStorage.setSecret("my-bedrock", "mobile-key");
+    plugin.settings.bedrockApiKeySecret = "my-bedrock";
     await plugin.saveSettings();
     await plugin.loadSettings();
     expect(plugin.settings.bedrockApiKey).toBe("mobile-key");
     expect(data().bedrockApiKey).toBe("enc:pc-only");
-    expect(secretStorage.getSecret).toHaveBeenCalled();
+    expect(data().bedrockApiKeySecret).toBe("my-bedrock");
   });
 
   it("레거시 키 마이그레이션에서 잘못된 타입은 모바일 키로 사용하지 않는다", async () => {
@@ -146,15 +162,118 @@ describe("모바일 배포 번들", () => {
     expect(plugin.settings.bedrockApiKey).toBe("");
   });
 
-  it("구버전 모바일도 초기화되며 새 키는 세션에만 남긴다", async () => {
-    const { plugin, data } = runtime(true, {}, false);
-    await plugin.onload();
-    plugin.settings.geminiApiKey = "session-key";
-    await plugin.saveSettings();
-    expect(plugin.settings.geminiApiKey).toBe("session-key");
-    expect(data().geminiApiKey).toBe("");
+  it("키 값은 data.json에 쓰지 않고 비밀 이름만 저장한다", async () => {
+    const { plugin, data, secretStorage } = runtime(true);
     await plugin.loadSettings();
-    expect(plugin.settings.geminiApiKey).toBe("");
+    secretStorage.setSecret("my-gemini", "g-key");
+    plugin.settings.geminiApiKeySecret = "my-gemini";
+    plugin.refreshApiKeys();
+    await plugin.saveSettings();
+    expect(plugin.settings.geminiApiKey).toBe("g-key");
+    expect(data().geminiApiKey).toBe("");
+    expect(data().geminiApiKeySecret).toBe("my-gemini");
+  });
+
+  it("키체인에서 값을 바꾸면 다시 읽어 다음 요청부터 새 키를 쓴다", async () => {
+    const { plugin, secretStorage } = runtime(true, { geminiApiKeySecret: "my-gemini" });
+    secretStorage.setSecret("my-gemini", "first");
+    await plugin.onload();
+    expect(plugin.settings.geminiApiKey).toBe("first");
+    secretStorage.setSecret("my-gemini", "rotated");
+    expect(plugin.settings.geminiApiKey).toBe("rotated");
+  });
+
+  describe("예전 저장소의 키 옮기기", () => {
+    /** 예전 PC 버전의 형식: "enc:" + base64(OS 키체인 암호문). 가짜 키체인은 평문을 그대로 돌려준다. */
+    const encrypted = (value: string) => `enc:${Buffer.from(value).toString("base64")}`;
+    const LEGACY_FILE = "/user-data/agent-llms-credentials.json";
+
+    /** Electron userData의 예전 자격증명 파일과 OS 키체인 대역. */
+    function legacyPcStore(content: Record<string, string>, keychainAvailable = true) {
+      const files = new Map([[LEGACY_FILE, JSON.stringify(content)]]);
+      const fs = {
+        existsSync: (path: string) => files.has(path),
+        readFileSync: (path: string) => files.get(path),
+        writeFileSync: vi.fn(), renameSync: vi.fn(), unlinkSync: vi.fn(),
+      };
+      const electron = {
+        app: { getPath: () => "/user-data" },
+        safeStorage: {
+          isEncryptionAvailable: () => keychainAvailable,
+          decryptString: (value: Buffer) => value.toString(),
+        },
+      };
+      return { files, fs, native: { fs, electron } };
+    }
+
+    it("모바일의 예전 단일 항목을 키별 비밀로 옮기고 data.json에는 이름만 남긴다", async () => {
+      const { plugin, data, secretStorage } = runtime(true);
+      secretStorage.setSecret("agent-llms-credentials", JSON.stringify({ geminiApiKey: "old-key" }));
+      await plugin.loadSettings();
+      expect(plugin.settings.geminiApiKey).toBe("old-key");
+      expect(secretStorage.getSecret("agent-llms-gemini-key")).toBe("old-key");
+      expect(data().geminiApiKeySecret).toBe("agent-llms-gemini-key");
+      expect(data().geminiApiKey).toBe("");
+    });
+
+    it("PC의 예전 암호화 파일을 풀어 비밀로 옮기고 파일은 건드리지 않는다", async () => {
+      const store = legacyPcStore({ openaiApiKey: encrypted("o-key"), bedrockApiKey: encrypted("b-key") });
+      const { plugin, data, secretStorage } = runtime(false, {}, store.native);
+      await plugin.loadSettings();
+      expect(plugin.settings.openaiApiKey).toBe("o-key");
+      expect(secretStorage.getSecret("agent-llms-openai-key")).toBe("o-key");
+      expect(secretStorage.getSecret("agent-llms-bedrock-key")).toBe("b-key");
+      expect(data().openaiApiKeySecret).toBe("agent-llms-openai-key");
+      expect(data().openaiApiKey).toBe("");
+      // 같은 PC의 다른 볼트도 이 파일에서 키를 옮겨야 하므로 지우지 않는다.
+      expect([...store.files.keys()]).toEqual([LEGACY_FILE]);
+      expect(store.fs.writeFileSync).not.toHaveBeenCalled();
+      expect(store.fs.unlinkSync).not.toHaveBeenCalled();
+    });
+
+    it("한 번 옮긴 볼트에서는 사용자가 지운 키가 예전 저장소에서 되살아나지 않는다", async () => {
+      const store = legacyPcStore({ geminiApiKey: encrypted("old-key") });
+      const { plugin, data } = runtime(false, {}, store.native);
+      await plugin.loadSettings();
+      expect(plugin.settings.geminiApiKey).toBe("old-key");
+      plugin.settings.geminiApiKeySecret = "";
+      await plugin.saveSettings();
+      await plugin.loadSettings();
+      expect(plugin.settings.geminiApiKey).toBe("");
+      expect(data().geminiApiKeySecret).toBe("");
+    });
+
+    it("OS 키체인이 잠겨 파일을 풀지 못하면 암호문을 옮기지 않고 다음 실행에서 다시 시도한다", async () => {
+      const store = legacyPcStore({ geminiApiKey: encrypted("old-key") }, false);
+      const { plugin, secretStorage } = runtime(false, {}, store.native);
+      await plugin.loadSettings();
+      expect(plugin.settings.geminiApiKey).toBe("");
+      expect(secretStorage.setSecret).not.toHaveBeenCalled();
+      // 키체인이 풀린 뒤의 다음 실행
+      store.native.electron.safeStorage.isEncryptionAvailable = () => true;
+      await plugin.loadSettings();
+      expect(plugin.settings.geminiApiKey).toBe("old-key");
+    });
+
+    it("아주 예전 버전이 data.json에 둔 평문 키를 비밀로 옮기고 파일에서 지운다", async () => {
+      const { plugin, data, secretStorage } = runtime(true, { openaiApiKey: "plain-old" });
+      await plugin.loadSettings();
+      expect(plugin.settings.openaiApiKey).toBe("plain-old");
+      expect(secretStorage.getSecret("agent-llms-openai-key")).toBe("plain-old");
+      expect(data().openaiApiKey).toBe("");
+      expect(data().openaiApiKeySecret).toBe("agent-llms-openai-key");
+    });
+
+    it("비밀 저장소에 쓰지 못하면 data.json의 예전 키를 지우지 않는다", async () => {
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      const { plugin, data, secretStorage } = runtime(true, { geminiApiKey: "plain-old" });
+      secretStorage.setSecret.mockImplementation(() => { throw new Error("Secure storage is not available."); });
+      await plugin.loadSettings();
+      expect(plugin.settings.geminiApiKey).toBe("");
+      await plugin.saveSettings();
+      expect(data().geminiApiKey).toBe("plain-old");
+      vi.restoreAllMocks();
+    });
   });
 
   it("MCP 없이 실제 채팅 도구 루프에서 노트를 읽고 수정한다", async () => {

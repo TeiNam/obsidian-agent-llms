@@ -9,7 +9,6 @@ import {
   MarkdownView,
   TFolder,
   Platform,
-  requireApiVersion,
 } from "obsidian";
 import type { WorkspaceLeaf } from "obsidian";
 import { VaultIndexer } from "./vault-indexer";
@@ -31,13 +30,14 @@ import {
 } from "./session-recovery";
 import {
   decryptSettings,
-  persistSettingsWithCredentials,
+  stripSensitiveFields,
   loadCredentialsFromLocal,
   SENSITIVE_FIELDS,
   LEGACY_SENSITIVE_FIELDS,
   migrateCredentialsFile,
   isEncrypted,
 } from "./safe-storage";
+import { importLegacySecrets, resolveSecrets } from "./secrets";
 import { createAiClient } from "./ai-client-factory";
 import { migratePlannerSettings } from "./planner-settings";
 import { planMigrations, isPluginFolderTask } from "./migration";
@@ -185,6 +185,8 @@ const MCP_CONFIG_FILE = "mcp.json";
  * 이 플러그인 폴더를 그쪽 릴리스로 덮어써버렸다.
  */
 const LEGACY_PLUGIN_IDS = ["ai-assistant", "bedrock-assistant", "assistant-kiro"] as const;
+// 예전 키 저장소를 이 볼트의 비밀 저장소로 옮겼다는 표시. 볼트·기기별 로컬 저장소에 둔다.
+const LEGACY_KEYS_IMPORTED = "agent-llms-legacy-keys-imported";
 
 // 신규 사용자를 위한 기본 MCP 설정 템플릿 (웹서치 fetch/brave/exa).
 // 설정 파일이 없을 때 편집창에 미리 채워주는 용도이며, 저장 전까지는 자동 연결되지 않는다.
@@ -262,6 +264,14 @@ export default class GeminiAssistantPlugin extends Plugin {
     await this.migrateSettingsFiles();
 
     await this.loadSettings();
+    // 키체인에서 비밀을 고치거나 지우면 다시 읽는다. "changed"는 타입 선언에 없지만
+    // Obsidian의 키체인 설정 탭이 쓰는 이벤트다. 오지 않아도 로드·비밀 선택 때는 다시 읽는다.
+    this.registerEvent(
+      this.app.secretStorage.on("changed", () => {
+        this.refreshApiKeys();
+        this.syncAccountScope();
+      })
+    );
 
     // 초기 브랜딩 설정 (로드된 설정의 aiBackend에 맞게 갱신)
     updateBranding(this.settings.aiBackend);
@@ -1889,24 +1899,17 @@ export default class GeminiAssistantPlugin extends Plugin {
       raw.systemPrompt = "";
     }
 
-    // 마이그레이션: data.json에 암호화된 키가 남아있으면 로컬로 이전 후 제거
-    // 폐기된 액세스 키 필드도 감지 대상에 넣는다. SENSITIVE_FIELDS만 검사하면,
-    // 액세스 키만 남은 구 data.json은 이 분기를 타지 않아 재저장이 일어나지 않고
-    // 평문 키가 동기화 대상 파일에 영구 잔존한다. 플러그인 ID 마이그레이션이
-    // data.json을 그대로 복사하므로 새 경로까지 따라온다.
-    let hasMigratedKeys = false;
-    for (const field of [...SENSITIVE_FIELDS, ...LEGACY_SENSITIVE_FIELDS]) {
-      const val = (raw as Record<string, unknown>)[field];
-      if (typeof val === "string" && val.length > 0) {
-        hasMigratedKeys = true;
-        break;
-      }
-    }
+    // 폐기된 액세스 키가 구 data.json에 평문으로 남아 있으면 다시 저장해 지운다.
+    // 플러그인 ID 마이그레이션이 data.json을 그대로 복사하므로 새 경로까지 따라온다.
+    let needsSave = LEGACY_SENSITIVE_FIELDS.some((field) => {
+      const value = (raw as Record<string, unknown>)[field];
+      return typeof value === "string" && value.length > 0;
+    });
 
     // 마이그레이션: temperature → effort. 구버전 설정에는 effort 키가 없고 대신
     // temperature(0.0~1.0)가 저장돼 있으므로, 그 값의 크기를 강도로 환산해 승계한다.
     // (temperature는 더 이상 어떤 공급자에도 전송하지 않는다.)
-    // 아래 hasMigratedKeys 분기가 saveData를 호출하므로, 그 전에 raw에 반영해야
+    // 아래에서 설정을 저장할 수 있으므로, 그 전에 raw에 반영해야
     // 변환 결과가 저장된다. 나중에 반영하면 기본값 "medium"이 저장돼 다음 실행에서
     // effort 키가 존재한다는 이유로 마이그레이션이 건너뛰어진다.
     if (typeof loaded?.effort !== "string") {
@@ -1917,31 +1920,49 @@ export default class GeminiAssistantPlugin extends Plugin {
           : DEFAULT_SETTINGS.effort;
     }
 
-    if (hasMigratedKeys) {
-      // 기존 data.json의 키를 복호화 후 로컬 파일로 저장
-      const decrypted = decryptSettings(raw);
-      if (Platform.isMobileApp) {
-        // PC 키체인 암호문은 모바일에서 복호화할 수 없으며 API 키로 보내면 안 된다.
-        for (const field of SENSITIVE_FIELDS) {
-          const value = decrypted[field];
-          if (typeof value !== "string" || isEncrypted(value)) decrypted[field] = "";
-        }
-        Object.assign(decrypted, loadCredentialsFromLocal(this.credentialStorage));
-      }
-      this.settings = decrypted;
-      await this.persistSettings();
-    } else {
-      // 로컬 전용 파일에서 자격증명 로드.
-      //
-      // 구 설정이 프로필 인증이었으면 로컬에 남은 Bedrock API 키를 적용하지 않는다.
-      // 그대로 병합하면 사용자가 마지막에 고른 것은 프로필인데도 과거 키의 계정으로
-      // 요청이 나가 조용히 과금된다 (filterStaleCredentials 주석 참조).
-      const credentials = filterStaleCredentials(
-        raw as { awsAuthMethod?: string },
-        loadCredentialsFromLocal(this.credentialStorage)
-      );
-      this.settings = { ...raw, ...credentials };
+    // --- API 키: 값은 Obsidian 비밀 저장소에 있고 data.json에는 비밀 이름만 있다 ---
+    //
+    // 예전 저장소(PC의 로컬 암호화 파일, 모바일의 단일 항목)는 볼트마다 한 번만 읽는다.
+    // 매번 읽으면 사용자가 키체인에서 지운 키가 되살아난다.
+    //
+    // 구 설정이 프로필 인증이었으면 로컬에 남은 Bedrock API 키는 옮기지 않는다.
+    // 옮기면 사용자가 마지막에 고른 것은 프로필인데도 과거 키의 계정으로 요청이 나가
+    // 조용히 과금된다 (filterStaleCredentials 주석 참조).
+    const localKeys = filterStaleCredentials(
+      raw as { awsAuthMethod?: string },
+      this.app.loadLocalStorage(LEGACY_KEYS_IMPORTED)
+        ? {}
+        : loadCredentialsFromLocal(Platform.isMobileApp ? this.app.secretStorage : undefined)
+    );
+    // OS 키체인이 잠겨 풀지 못한 값은 옮기지 않는다. 표시도 남기지 않아 다음 실행에서 다시 읽는다.
+    const hasLockedLocalKeys = Object.values(localKeys).some(isEncrypted);
+    const legacyKeys = Object.fromEntries(Object.entries(localKeys).filter(([, value]) => !isEncrypted(value)));
+    // 아주 예전 버전은 키를 data.json에 두었다. 풀 수 있는 값은 옮기고 지운다.
+    // 이 기기에서 풀 수 없는 암호문(다른 PC의 키체인)은 키로 쓰지 않고, 그 PC가 옮길 수 있게 남긴다.
+    this.preservedKeys = {};
+    const dataKeys: Record<string, string> = {};
+    const decrypted = decryptSettings(raw) as Record<string, unknown>;
+    for (const field of SENSITIVE_FIELDS) {
+      const value = decrypted[field];
+      if (typeof value !== "string" || !value) continue;
+      if (isEncrypted(value)) this.preservedKeys[field] = value;
+      else dataKeys[field] = value;
     }
+    try {
+      const assigned = importLegacySecrets(raw, { ...legacyKeys, ...dataKeys }, this.app.secretStorage);
+      Object.assign(raw, assigned);
+      needsSave ||= Object.keys(assigned).length > 0 || Object.keys(dataKeys).length > 0;
+      if (!hasLockedLocalKeys) this.app.saveLocalStorage(LEGACY_KEYS_IMPORTED, "1");
+    } catch (error) {
+      // 옮기지 못한 키는 예전 자리에 그대로 두고, 다음 실행에서 다시 시도한다.
+      console.error("API 키를 비밀 저장소로 옮기지 못했습니다:", error);
+      new Notice(noticeI18n(raw.language).keychainImportFailed, 10000);
+      for (const field of Object.keys(dataKeys)) {
+        this.preservedKeys[field] = (raw as unknown as Record<string, string>)[field];
+      }
+    }
+    this.settings = { ...raw, ...resolveSecrets(raw, this.app.secretStorage) };
+    if (needsSave) await this.persistSettings();
 
     // 마이그레이션: 임베딩 모델이 빈 문자열이면 기본값으로 복원
     // (이전 버전에서 빈 문자열로 저장된 경우 대응)
@@ -1959,7 +1980,7 @@ export default class GeminiAssistantPlugin extends Plugin {
       this.settings.effort
     );
 
-    // Second Brain 설정 정규화 (Req 1.3): this.settings가 두 hasMigratedKeys 분기로
+    // Second Brain 설정 정규화 (Req 1.3): this.settings가 위의 키 로드에서
     // 확정된 뒤에 적용해야 한다(병합 직후에는 이후 분기에서 통째로 덮어써짐).
     // 정규화 입력은 사용자 저장 원본(loaded?.secondBrain)을 직접 사용한다.
     // 누락/부분/이상 값은 normalize가 기본값으로 채워 비파괴 마이그레이션을 보장한다.
@@ -1969,36 +1990,27 @@ export default class GeminiAssistantPlugin extends Plugin {
     this.lastAccountScope = this.accountScopeKey();
   }
 
-  private credentialsSaveWarningShown = false;
-
-  private get credentialStorage(): App["secretStorage"] | null | undefined {
-    if (!Platform.isMobileApp) return undefined;
-    return requireApiVersion("1.11.4") ? this.app.secretStorage ?? null : null;
-  }
+  /** data.json에 그대로 남겨 둘 예전 키 값 (이 기기에서 풀 수 없는 암호문, 옮기지 못한 값). */
+  private preservedKeys: Record<string, string> = {};
 
   private async persistSettings(): Promise<void> {
-    const saved = await persistSettingsWithCredentials(
-      this.settings, this, this.credentialStorage
-    );
-    if (!saved && !this.credentialsSaveWarningShown) {
-      const t = noticeI18n(this.settings.language);
-      new Notice(Platform.isMobileApp ? t.credentialsNotSavedMobile : t.credentialsNotSaved, 10000);
-    }
-    this.credentialsSaveWarningShown = !saved;
+    // 키 값은 비밀 저장소에만 둔다. data.json에는 비밀 이름만 남는다.
+    await this.saveData({ ...stripSensitiveFields(this.settings), ...this.preservedKeys });
+  }
+
+  /**
+   * 비밀 저장소의 현재 값으로 API 키를 다시 채운다.
+   * 클라이언트는 같은 설정 객체를 보므로 다음 요청부터 바로 쓴다.
+   */
+  refreshApiKeys(): void {
+    Object.assign(this.settings, resolveSecrets(this.settings, this.app.secretStorage));
   }
 
   async saveSettings(): Promise<void> {
     await this.persistSettings();
     this.aiClient?.updateSettings(this.settings);
 
-    // 설정 UI는 this.settings를 먼저 바꾼 뒤 saveSettings를 호출하므로, 이 함수
-    // 내부에서 전/후를 비교하면 항상 같다. 마지막으로 관측한 스코프를 필드에 보관해
-    // 그것과 비교해야 실제 변경을 감지할 수 있다.
-    const scope = this.accountScopeKey();
-    if (this.lastAccountScope !== scope) {
-      this.lastAccountScope = scope;
-      this.refreshChatModelLists();
-    }
+    this.syncAccountScope();
     // 설정 탭에서 effort·모델을 바꿔도 채팅창 하단 표시가 바로 따라오게 한다.
     for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE)) {
       (leaf.view as { updateModelLabel?: () => void }).updateModelLabel?.();
@@ -2007,6 +2019,19 @@ export default class GeminiAssistantPlugin extends Plugin {
     updateBranding(this.settings.aiBackend);
     // 설정 변경이 Graph RAG 검색에도 즉시 반영되도록 인덱서 옵션을 재적용한다 (견고성 목적)
     this.applySearchOptions();
+  }
+
+  /**
+   * 계정 범위(백엔드·자격증명·엔드포인트)가 바뀌었으면 채팅 뷰의 모델 목록을 다시 읽게 한다.
+   *
+   * 설정 UI는 this.settings를 먼저 바꾼 뒤 saveSettings를 호출하므로, 호출 시점에
+   * 전/후를 비교하면 항상 같다. 마지막으로 관측한 스코프를 필드에 보관해 그것과 비교한다.
+   */
+  private syncAccountScope(): void {
+    const scope = this.accountScopeKey();
+    if (this.lastAccountScope === scope) return;
+    this.lastAccountScope = scope;
+    this.refreshChatModelLists();
   }
 
   /**

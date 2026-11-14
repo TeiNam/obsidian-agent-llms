@@ -1,8 +1,8 @@
 {
   "id": "agent-llms",
   "name": "Agent LLMs",
-  "version": "0.7.19",
-  "minAppVersion": "1.7.2",
+  "version": "0.8.0",
+  "minAppVersion": "1.13.2",
   "description": "Agentic LLM sidebar with four backends (AWS Bedrock, Google Gemini, OpenAI, Ollama). Includes chat, Graph RAG vault search, Second Brain layer, to-do management, web clipper, and MCP server integration.",
   "author": "teinam",
   "authorUrl": "https://github.com/teinam",

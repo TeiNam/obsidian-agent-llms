@@ -1,17 +1,13 @@
 /**
- * 기기별 자격증명 저장 모듈
+ * 예전 자격증명 저장소 읽기
  *
- * OS 키체인(macOS Keychain, Windows DPAPI, Linux libsecret)을 활용하여
- * 민감한 문자열을 암복호화합니다.
- * 암호화된 데이터는 Base64 문자열로 로컬 전용 파일에 저장됩니다.
+ * API 키는 이제 Obsidian 비밀 저장소(SecretStorage)에 있다 (secrets.ts).
+ * 이 모듈은 예전 버전이 남긴 키를 읽어 옮기는 데만 쓴다. 새로 쓰지 않는다.
  *
- * 암호화 헬퍼가 평문을 반환하면 영속화 계층이 저장을 거절하고 기존 파일을 보존합니다.
- *
- * --- iCloud 동기화 대응 ---
- * 민감한 키(Access Key, Secret Key, API Key)는 볼트 내 data.json이 아닌
- * Electron userData 경로(로컬 전용, iCloud 동기화 안 됨)에 별도 저장합니다.
- * 이렇게 하면 기기별 키체인으로 암호화된 값이 다른 기기로 전파되지 않습니다.
- * 모바일은 Obsidian SecretStorage에 저장하며, 미지원 버전에서는 새 키를 메모리에만 둡니다.
+ * - PC: OS 키체인(Electron safeStorage)으로 암호화해 Electron userData 경로의
+ *   로컬 전용 파일에 저장했다. 볼트 밖이라 동기화되지 않는다.
+ * - 모바일: Obsidian SecretStorage의 항목 하나에 JSON으로 저장했다.
+ * - 아주 예전: data.json에 암호문("enc:...") 또는 평문으로 저장했다.
  */
 
 
@@ -23,12 +19,11 @@ declare class Buffer {
 
 import { planCredentialMigration } from "./migration";
 import type { App } from "obsidian";
-import { requireApiVersion } from "obsidian";
 
 // 암호화된 값 식별 접두사
 const ENCRYPTED_PREFIX = "enc:";
 
-// 로컬 전용 자격증명 파일명.
+// 예전 로컬 전용 자격증명 파일명.
 // `{pluginId}-credentials.json` 규칙을 지켜야 한다 — planCredentialMigration이
 // 같은 규칙으로 마이그레이션 대상 파일명을 만든다.
 const CREDENTIALS_FILE = "agent-llms-credentials.json";
@@ -171,23 +166,6 @@ export function isEncrypted(value: string): boolean {
 }
 
 /**
- * 문자열을 암호화하여 "enc:..." 형태의 Base64 문자열로 반환
- * safeStorage를 사용할 수 없으면 원본 그대로 반환
- * 빈 문자열이면 그대로 반환 (암호화 불필요)
- */
-export function encryptValue(plaintext: string): string {
-  if (!plaintext || isEncrypted(plaintext)) return plaintext;
-  const ss = getSafeStorage();
-  if (!ss) return plaintext;
-  try {
-    const encrypted = ss.encryptString(plaintext);
-    return ENCRYPTED_PREFIX + encrypted.toString("base64");
-  } catch {
-    return plaintext;
-  }
-}
-
-/**
  * "enc:..." 형태의 암호화된 문자열을 복호화하여 원본 반환
  * 암호화되지 않은 값이면 그대로 반환 (하위 호환)
  * safeStorage를 사용할 수 없으면 원본 그대로 반환
@@ -228,31 +206,6 @@ export function stripSensitiveFields<T extends object>(settings: T): T {
   return result as T;
 }
 
-/**
- * 파일에 기록할 자격증명 페이로드를 구성한다.
- *
- * OS 키체인을 쓸 수 없으면 encrypt가 평문을 그대로 돌려주는데, 장기 자격증명을
- * 평문 파일로 남기면 키체인 미구성 환경(예: Linux libsecret 없음)에서 키가
- * 디스크에 노출된다. 그런 필드는 페이로드에서 제외하고, 저장 함수는 누락을 감지해
- * 기존 파일을 보존한다. 새 키는 메모리에만 남으며 재시작 전에 저장 재시도가 필요하다.
- *
- * 암호화 함수를 주입받아 순수 함수로 유지한다(테스트 가능).
- */
-export function buildCredentialsPayload(
-  settings: Record<string, unknown>,
-  encrypt: (value: string) => string = encryptValue
-): Record<string, string> {
-  const credentials: Record<string, string> = {};
-  for (const field of SENSITIVE_FIELDS) {
-    const value = settings[field];
-    if (typeof value !== "string" || !value) continue;
-    const encrypted = encrypt(value);
-    if (!isEncrypted(encrypted)) continue;
-    credentials[field] = encrypted;
-  }
-  return credentials;
-}
-
 /** 같은 디렉터리의 완성된 임시 파일로 교체하여 실패 시 기존 파일을 보존한다. */
 function writeCredentialsFile(fs: NodeFsSubset, filePath: string, data: string): void {
   const temporaryPath = `${filePath}.${window.crypto.randomUUID()}.tmp`;
@@ -264,83 +217,15 @@ function writeCredentialsFile(fs: NodeFsSubset, filePath: string, data: string):
   }
 }
 
-export function saveCredentialsToLocal(
-  settings: Record<string, unknown>,
-  secretStorage?: App["secretStorage"] | null,
-): boolean {
-  if (requireApiVersion("1.11.4") && secretStorage !== undefined) {
-    if (!secretStorage) return false;
-    const credentials: Record<string, string> = {};
-    for (const field of SENSITIVE_FIELDS) {
-      const value = settings[field];
-      if (!value) continue;
-      if (typeof value !== "string" || isEncrypted(value)) return false;
-      credentials[field] = value;
-    }
-    try {
-      // 하나의 항목으로 저장해 여러 키 중 일부만 교체되는 상황을 피한다.
-      const data = JSON.stringify(credentials);
-      secretStorage.setSecret(MOBILE_CREDENTIALS_ID, data);
-      return secretStorage.getSecret(MOBILE_CREDENTIALS_ID) === data;
-    } catch (error) {
-      console.error("자격증명 모바일 저장 실패:", error);
-      return false;
-    }
-  }
-  if (secretStorage !== undefined) return false;
-  const filePath = getCredentialsFilePath();
-  if (!filePath || !nodeFs) return false;
-
-  const credentials = buildCredentialsPayload(settings);
-  // 하나라도 암호화하지 못하면 기존 자격증명 파일 전체를 보존한다.
-  if (SENSITIVE_FIELDS.some((field) => settings[field] && !credentials[field])) return false;
-  try {
-    // 완성된 파일만 교체한다. 쓰기 실패가 기존 키 파일을 잘라 버리지 않게 한다.
-    writeCredentialsFile(nodeFs, filePath, JSON.stringify(credentials, null, 2));
-    return true;
-  } catch (e) {
-    console.error("자격증명 로컬 저장 실패:", e);
-    return false;
-  }
-}
-
 /**
- * 로컬 저장 실패 시 기존 마이그레이션 원본만 보존한다.
- * 새 평문 키는 볼트에 쓰지 않으며, 비밀값 외 설정은 계속 저장할 수 있다.
+ * 예전 저장소에 남은 자격증명을 읽는다. 없거나 읽지 못하면 빈 객체.
+ *
+ * @param secretStorage 모바일이면 SecretStorage(예전 단일 항목을 읽는다), PC면 생략(로컬 파일을 읽는다)
  */
-export async function persistSettingsWithCredentials<T extends object>(
-  settings: T,
-  storage: {
-    loadData(): Promise<unknown>;
-    saveData(data: unknown): Promise<void>;
-  },
-  secretStorage?: App["secretStorage"] | null,
-): Promise<boolean> {
-  const saved = saveCredentialsToLocal(settings as Record<string, unknown>, secretStorage);
-  const data = stripSensitiveFields(settings) as Record<string, unknown>;
-  if (!saved || secretStorage !== undefined) {
-    const previous = await storage.loadData();
-    if (previous && typeof previous === "object") {
-      const record = previous as Record<string, unknown>;
-      for (const field of SENSITIVE_FIELDS) {
-        const value = record[field];
-        // 모바일에서 해독하지 못한 PC 암호문은 PC의 마이그레이션을 위해 남긴다.
-        if (typeof value === "string" && value && (!saved || isEncrypted(value))) data[field] = value;
-      }
-    }
-  }
-  await storage.saveData(data);
-  return saved;
-}
-
-/**
- * 로컬 전용 파일에서 자격증명을 읽어 복호화하여 반환
- * 파일이 없거나 읽기 실패 시 빈 객체 반환
- */
-export function loadCredentialsFromLocal(secretStorage?: App["secretStorage"] | null): Record<string, string> {
-  if (requireApiVersion("1.11.4") && secretStorage !== undefined) {
+export function loadCredentialsFromLocal(secretStorage?: App["secretStorage"]): Record<string, string> {
+  if (secretStorage !== undefined) {
     try {
-      const stored = secretStorage?.getSecret(MOBILE_CREDENTIALS_ID);
+      const stored = secretStorage.getSecret(MOBILE_CREDENTIALS_ID);
       if (!stored) return {};
       const parsed: unknown = JSON.parse(stored);
       if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
@@ -355,7 +240,6 @@ export function loadCredentialsFromLocal(secretStorage?: App["secretStorage"] | 
       return {};
     }
   }
-  if (secretStorage !== undefined) return {};
   const filePath = getCredentialsFilePath();
   if (!filePath || !nodeFs) return {};
 
@@ -379,25 +263,9 @@ export function loadCredentialsFromLocal(secretStorage?: App["secretStorage"] | 
 }
 
 /**
- * 설정 객체의 민감한 필드들을 암호화하여 새 객체로 반환
- * 원본 객체를 변경하지 않습니다.
- * @deprecated data.json에 직접 저장하는 레거시 방식. 마이그레이션 호환용으로 유지.
- */
-export function encryptSettings<T extends object>(settings: T): T {
-  const result = { ...settings } as Record<string, unknown>;
-  for (const field of SENSITIVE_FIELDS) {
-    const value = result[field];
-    if (typeof value === "string") {
-      result[field] = encryptValue(value);
-    }
-  }
-  return result as T;
-}
-
-/**
  * 설정 객체의 민감한 필드들을 복호화하여 새 객체로 반환
  * 원본 객체를 변경하지 않습니다.
- * data.json에서 직접 읽는 레거시 마이그레이션 전용이다. 신규 저장 경로에서는 사용하지 않는다.
+ * 아주 예전 버전이 data.json에 남긴 값을 읽을 때만 쓴다.
  */
 export function decryptSettings<T extends object>(settings: T): T {
   const result = { ...settings } as Record<string, unknown>;
